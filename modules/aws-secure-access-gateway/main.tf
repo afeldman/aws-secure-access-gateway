@@ -176,6 +176,28 @@ resource "aws_security_group" "gateway" {
 
   # No ingress rules are needed as access is via SSM Session Manager.
 
+  dynamic "ingress" {
+    for_each = length(var.trusted_forwarder_cidr) > 0 && var.enable_mtls ? [1] : []
+    content {
+      description = "Trusted forwarder mTLS access"
+      from_port   = 10000
+      to_port     = 10000
+      protocol    = "tcp"
+      cidr_blocks = var.trusted_forwarder_cidr
+    }
+  }
+
+  dynamic "ingress" {
+    for_each = length(var.trusted_forwarder_cidr) > 0 && var.enable_ssh ? [1] : []
+    content {
+      description = "Trusted forwarder SSH access"
+      from_port   = 2222
+      to_port     = 2222
+      protocol    = "tcp"
+      cidr_blocks = var.trusted_forwarder_cidr
+    }
+  }
+
   # Egress Rules
   # Allow HTTPS to VPC resources (EKS API/private endpoints) and AWS SSM endpoints.
   egress {
@@ -244,6 +266,7 @@ resource "aws_instance" "gateway" {
     enable_mtls       = var.enable_mtls
     enable_ssh        = var.enable_ssh
     enable_twingate   = var.enable_twingate
+    trusted_forwarder_cidr = var.trusted_forwarder_cidr
     twingate_network  = var.twingate_network
     twingate_access_token_param = var.twingate_access_token_param
     twingate_refresh_token_param = var.twingate_refresh_token_param

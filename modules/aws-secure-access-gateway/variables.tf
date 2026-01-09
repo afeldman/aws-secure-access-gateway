@@ -34,6 +34,12 @@ variable "twingate_refresh_token_param" {
   default     = ""
 }
 
+variable "trusted_forwarder_cidr" {
+  description = "List of trusted forwarder CIDRs allowed to reach gateway listeners (mTLS/SSH)."
+  type        = list(string)
+  default     = []
+}
+
 variable "enable_kubectl_access" {
   description = "Attach EKS cluster policy to allow kubectl access from the gateway."
   type        = bool
@@ -57,6 +63,22 @@ variable "_validate_mtls_or_ssh" {
   validation {
     condition     = !(var.enable_mtls && var.enable_ssh)
     error_message = "enable_ssh can only be true when enable_mtls is false (mutually exclusive)."
+  }
+}
+
+variable "_validate_access_mode" {
+  description = "Internal validation to ensure access modes are mutually exclusive (mtls | ssh | twingate)."
+  type        = any
+  default     = null
+  validation {
+    condition = (
+      (
+        (var.enable_mtls ? 1 : 0) +
+        (var.enable_ssh ? 1 : 0) +
+        (var.enable_twingate ? 1 : 0)
+      ) <= 1
+    )
+    error_message = "Exactly one of enable_mtls, enable_ssh, enable_twingate may be true."
   }
 }
 

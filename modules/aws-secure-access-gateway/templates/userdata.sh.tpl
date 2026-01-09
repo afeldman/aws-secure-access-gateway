@@ -4,16 +4,12 @@ exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&
 
 echo "[userdata] bootstrap starting"
 
-if [ "${ENABLE_MTLS}" = "true" ] && [ "${ENABLE_SSH}" = "true" ]; then
-  echo "[userdata] ERROR: enable_mtls and enable_ssh cannot both be true" >&2
-  exit 1
-fi
-
 # --- Variables from Terraform ---
 CREDENTIAL_SOURCE="${credential_source}"
 ENABLE_MTLS="${enable_mtls}"
 ENABLE_SSH="${enable_ssh}"
 ENABLE_TWINGATE="${enable_twingate}"
+TRUSTED_FORWARDER_CIDR="${trusted_forwarder_cidr}"
 twingate_network="${twingate_network}"
 twingate_access_param="${twingate_access_token_param}"
 twingate_refresh_param="${twingate_refresh_token_param}"
@@ -29,6 +25,33 @@ ENABLE_CW_METRICS="${enable_cloudwatch_metrics}"
 CW_NAMESPACE="${cloudwatch_namespace}"
 
 export AWS_DEFAULT_REGION="${region}"
+
+enabled_modes=0
+enabled_labels=()
+
+if [ "${ENABLE_MTLS}" = "true" ]; then
+  enabled_modes=$((enabled_modes + 1))
+  enabled_labels+=("mTLS")
+fi
+
+if [ "${ENABLE_SSH}" = "true" ]; then
+  enabled_modes=$((enabled_modes + 1))
+  enabled_labels+=("SSH")
+fi
+
+if [ "${ENABLE_TWINGATE}" = "true" ]; then
+  enabled_modes=$((enabled_modes + 1))
+  enabled_labels+=("Twingate")
+fi
+
+if [ "${enabled_modes}" -gt 1 ]; then
+  echo "[userdata] ERROR: enable_mtls, enable_ssh, and enable_twingate are mutually exclusive (found: ${enabled_labels[*]})" >&2
+  exit 1
+fi
+
+if [ -n "${TRUSTED_FORWARDER_CIDR}" ]; then
+  echo "[userdata] trusted forwarder CIDRs: ${TRUSTED_FORWARDER_CIDR}"
+fi
 
 ## Install core dependencies
 echo "[userdata] installing dependencies (docker, kubectl)"
