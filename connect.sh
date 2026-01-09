@@ -25,7 +25,7 @@ Usage: ./connect.sh [options]
   -h, --help                 Show this help
 
 Examples:
-  ./connect.sh --target i-abc --service datalynq-alfa --local-port 8080
+  ./connect.sh --target i-abc --service internal-app --local-port 8080
   ./connect.sh --mode ssh --target i-abc --local-port 2222 --remote-port 2222
 EOF
 }

@@ -9,7 +9,7 @@ Zero-trust gateway for private EKS access (Terraform module + Helm chart + conne
 
 ## connect.sh
 ```bash
-./connect.sh --target i-0123456789abcdef0 --service datalynq-alfa --local-port 8080
+./connect.sh --target i-0123456789abcdef0 --service internal-app --local-port 8080
 ./connect.sh --mode ssh --target i-0123456789abcdef0 --local-port 2222
 ```
 - Default mode: `mtls` on port 10000 (local and remote). SSH fallback uses port 2222 by default.
