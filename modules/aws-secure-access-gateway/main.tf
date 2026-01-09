@@ -92,6 +92,20 @@ resource "aws_iam_policy" "ssm_credential_access" {
           Effect   = "Allow",
           Resource = "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.onepassword_connect_token_param}"
         }
+      ] : [],
+      var.twingate_access_token_param != "" ? [
+        {
+          Action = ["ssm:GetParameter", "ssm:GetParameters"],
+          Effect = "Allow",
+          Resource = "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.twingate_access_token_param}"
+        }
+      ] : [],
+      var.twingate_refresh_token_param != "" ? [
+        {
+          Action = ["ssm:GetParameter", "ssm:GetParameters"],
+          Effect = "Allow",
+          Resource = "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.twingate_refresh_token_param}"
+        }
       ] : []
     ])
   })
@@ -230,6 +244,9 @@ resource "aws_instance" "gateway" {
     enable_mtls       = var.enable_mtls
     enable_ssh        = var.enable_ssh
     enable_twingate   = var.enable_twingate
+    twingate_network  = var.twingate_network
+    twingate_access_token_param = var.twingate_access_token_param
+    twingate_refresh_token_param = var.twingate_refresh_token_param
     service_name      = var.service_name
     environment       = var.environment
     region            = var.region

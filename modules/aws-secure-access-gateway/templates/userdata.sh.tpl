@@ -14,6 +14,9 @@ CREDENTIAL_SOURCE="${credential_source}"
 ENABLE_MTLS="${enable_mtls}"
 ENABLE_SSH="${enable_ssh}"
 ENABLE_TWINGATE="${enable_twingate}"
+twingate_network="${twingate_network}"
+twingate_access_param="${twingate_access_token_param}"
+twingate_refresh_param="${twingate_refresh_token_param}"
 SERVICE_NAME="${service_name}"
 ENVIRONMENT="${environment}"
 AWS_REGION="${region}"
@@ -203,10 +206,49 @@ fi
 
 ## Twingate token (placeholder)
 if [ "${ENABLE_TWINGATE}" = "true" ]; then
-  echo "[userdata] fetching Twingate token"
+  echo "[userdata] configuring Twingate connector"
+  if [ -z "${twingate_network}" ]; then
+    echo "[userdata] ERROR: twingate_network is required when enable_twingate=true" >&2
+    exit 1
+  fi
   mkdir -p /etc/twingate
-  fetch_credential "twingate/token" > /etc/twingate/token
-  chmod 600 /etc/twingate/token
+
+  fetch_twingate_token() {
+    local default_path="$1"
+    local param_override="$2"
+    if [ -n "$param_override" ]; then
+      case "$CREDENTIAL_SOURCE" in
+        "ssm")
+          aws ssm get-parameter --name "$param_override" --with-decryption --query Parameter.Value --output text --region "${AWS_REGION}" ;;
+        "1password")
+          install_op_cli; ensure_op_env; op read "op://${ONEPASSWORD_VAULT}/${ONEPASSWORD_ITEM_PREFIX}${param_override//\//-}" ;;
+        *) echo "[userdata] unsupported credential source" >&2; exit 1 ;;
+      esac
+    else
+      fetch_credential "$default_path"
+    fi
+  }
+
+  TWINGATE_ACCESS_TOKEN=$(fetch_twingate_token "twingate/access_token" "${twingate_access_param}")
+  TWINGATE_REFRESH_TOKEN=$(fetch_twingate_token "twingate/refresh_token" "${twingate_refresh_param}")
+
+  cat <<EOF | sudo tee /etc/twingate/env >/dev/null
+TWINGATE_NETWORK=${twingate_network}
+TWINGATE_ACCESS_TOKEN=${TWINGATE_ACCESS_TOKEN}
+TWINGATE_REFRESH_TOKEN=${TWINGATE_REFRESH_TOKEN}
+TWINGATE_LABEL_HOSTNAME=$(hostname)
+EOF
+
+  DOCKER_LOG_OPTS=()
+  if [ "${LOG_GROUP_NAME}" != "" ]; then
+    DOCKER_LOG_OPTS+=(--log-driver awslogs --log-opt awslogs-region=${AWS_REGION} --log-opt awslogs-group=${LOG_GROUP_NAME} --log-opt awslogs-stream=\{instance_id\}/twingate)
+  fi
+
+  sudo docker run -d --name twingate-connector --restart unless-stopped \
+    --env-file /etc/twingate/env \
+    --net=host \
+    ${DOCKER_LOG_OPTS[@]} \
+    twingate/connector:latest
 fi
 
 echo "[userdata] bootstrap completed"

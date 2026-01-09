@@ -6,6 +6,7 @@ Opinionated deployment of the secure access gateway inside Kubernetes with condi
 - Single Deployment with optional mTLS (Envoy) sidecar, SSH fallback sidecar (mutually exclusive), and init container waiting for certs.
 - Configurable mTLS config map and secret names; ExternalSecret integration for mTLS/SSH materials.
 - PodDisruptionBudget toggle for HA and NetworkPolicy with restrictive ingress/egress.
+- Optional Twingate connector sidecar with ExternalSecret-backed tokens.
 - Service ports for HTTP placeholder, mTLS listener, and Envoy admin when mTLS is on.
 - Minimal RBAC + ServiceAccount.
 
@@ -15,6 +16,8 @@ Opinionated deployment of the secure access gateway inside Kubernetes with condi
 - `mtls.proxy.upstreamHost` / `mtls.proxy.upstreamPort`: where Envoy forwards (default `localhost:8080`).
 - `mtls.certSecretName`: secret with `ca.crt`, `tls.crt`, `tls.key`.
 - `ssh.enabled` (bool): enable SSH fallback (only when mTLS disabled). `ssh.authorizedKeysSecretName` for keys.
+- `twingate.enabled` (bool): enable Twingate connector (mutually exclusive with mTLS/SSH in this chart).
+- `twingate.network`: Twingate network name; `twingate.accessTokenSecretName`/`refreshTokenSecretName` and key fields for tokens.
 - `externalSecrets.enabled`: create ExternalSecrets. Sub-keys: `externalSecrets.mtls.*`, `externalSecrets.ssh.*`, `externalSecrets.path`, `refreshInterval`.
 - `pdb.enabled` and `pdb.minAvailable`: PodDisruptionBudget.
 - `networkPolicy.enabled` and `networkPolicy.extraEgress`: egress/ingress controls.

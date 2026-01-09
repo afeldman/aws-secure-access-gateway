@@ -61,6 +61,9 @@ module "access_gateway" {
 | `enable_mtls`        | Enable mTLS authentication.                                               | `bool`         | `true`      |    no    |
 | `enable_ssh`         | Enable SSH fallback access. Only used if mTLS is disabled.                | `bool`         | `false`     |    no    |
 | `enable_twingate`    | Enable Twingate integration.                                              | `bool`         | `false`     |    no    |
+| `twingate_network`   | Twingate network name used by the connector.                               | `string`       | `""`       |    no    |
+| `twingate_access_token_param` | SSM parameter path for the Twingate access token.                 | `string`       | `""`       |    no    |
+| `twingate_refresh_token_param` | SSM parameter path for the Twingate refresh token.               | `string`       | `""`       |    no    |
 | `enable_kubectl_access` | Attach AmazonEKSClusterPolicy for kubectl access from the gateway.     | `bool`         | `false`     |    no    |
 | `credential_source`  | The source for fetching credentials. Can be 'ssm' or '1password'.         | `string`       | `"ssm"`     |    no    |
 | *Note* | `enable_ssh` and `enable_mtls` are mutually exclusive; SSH only when mTLS is off. | - | - | - |

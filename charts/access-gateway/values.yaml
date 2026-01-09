@@ -72,6 +72,11 @@ twingate:
   enabled: false
   # Configuration for the Twingate sidecar
   image: twingate/connector:latest
+  network: ""
+  accessTokenSecretName: twingate-access-token
+  accessTokenKey: access_token
+  refreshTokenSecretName: twingate-refresh-token
+  refreshTokenKey: refresh_token
 
 # We will define a placeholder for ExternalSecrets integration
 externalSecrets:

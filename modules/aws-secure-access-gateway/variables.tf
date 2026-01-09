@@ -16,6 +16,24 @@ variable "enable_twingate" {
   default     = false
 }
 
+variable "twingate_network" {
+  description = "Twingate network name used by the connector."
+  type        = string
+  default     = ""
+}
+
+variable "twingate_access_token_param" {
+  description = "SSM parameter path holding the Twingate access token (WithDecryption)."
+  type        = string
+  default     = ""
+}
+
+variable "twingate_refresh_token_param" {
+  description = "SSM parameter path holding the Twingate refresh token (WithDecryption)."
+  type        = string
+  default     = ""
+}
+
 variable "enable_kubectl_access" {
   description = "Attach EKS cluster policy to allow kubectl access from the gateway."
   type        = bool
