@@ -1,0 +1,11 @@
+{{- if and .Values.ssh.enabled (not .Values.mtls.enabled) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "access-gateway.fullname" . }}-ssh-config
+  labels:
+    {{- include "access-gateway.labels" . | nindent 4 }}
+data:
+  sshd_config: |
+    {{- include "access-gateway.sshdConfig" . | nindent 4 }}
+{{- end }}

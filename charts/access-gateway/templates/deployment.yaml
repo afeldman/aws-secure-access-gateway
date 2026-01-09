@@ -1,0 +1,136 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "access-gateway.fullname" . }}
+  labels:
+    {{- include "access-gateway.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "access-gateway.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "access-gateway.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "access-gateway.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      
+      {{- if .Values.mtls.enabled }}
+      initContainers:
+      - name: wait-secrets
+        image: busybox:1.36
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -euo pipefail
+          for file in /etc/ssl/envoy/ca.crt /etc/ssl/envoy/tls.crt /etc/ssl/envoy/tls.key; do
+            while [ ! -s "$file" ]; do
+              echo "waiting for secret material: $file" && sleep 2;
+            done;
+          done
+        volumeMounts:
+        - name: mtls-certs
+          mountPath: /etc/ssl/envoy
+      {{- end }}
+
+      containers:
+      - name: {{ .Chart.Name }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        # This container does nothing, it's just a placeholder for the sidecars
+        command: ["/bin/sh", "-c", "trap : TERM INT; sleep infinity & wait"]
+        ports:
+        - name: http
+          containerPort: {{ .Values.service.port }}
+          protocol: TCP
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}
+
+      {{- if .Values.mtls.enabled }}
+      - name: envoy-proxy
+        image: "{{ .Values.mtls.proxy.image }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command: ["/usr/local/bin/envoy"]
+        args:
+        - "-c"
+        - "/etc/envoy/envoy.yaml"
+        - "--service-cluster"
+        - "{{ include "access-gateway.fullname" . }}"
+        ports:
+        - name: mtls
+          containerPort: {{ .Values.mtls.proxy.port }}
+          protocol: TCP
+        - name: admin
+          containerPort: {{ .Values.mtls.proxy.adminPort }}
+          protocol: TCP
+        volumeMounts:
+        - name: mtls-config
+          mountPath: /etc/envoy
+        - name: mtls-certs
+          mountPath: /etc/ssl/envoy
+          readOnly: true
+      {{- end }}
+
+      {{- if and .Values.ssh.enabled (not .Values.mtls.enabled) }}
+      - name: ssh-server
+        image: "{{ .Values.ssh.image }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - name: ssh
+          containerPort: {{ .Values.ssh.port }}
+          protocol: TCP
+        volumeMounts:
+        - name: ssh-config
+          mountPath: /etc/ssh
+        - name: ssh-keys
+          mountPath: /home/ssh-user/.ssh
+          readOnly: true
+      {{- end }}
+
+      volumes:
+      {{- if .Values.mtls.enabled }}
+      - name: mtls-config
+        configMap:
+          name: {{ default (printf "%s-mtls-config" (include "access-gateway.fullname" .)) .Values.mtls.configMapName }}
+      - name: mtls-certs
+        secret:
+          # This assumes a secret named 'mtls-certs' exists, containing
+          # ca.crt, tls.crt, and tls.key. This could be created by
+          # ExternalSecrets or manually.
+          secretName: {{ .Values.mtls.certSecretName }}
+      {{- end }}
+      {{- if and .Values.ssh.enabled (not .Values.twingate.enabled) }}
+      - name: ssh-config
+        configMap:
+          name: {{ include "access-gateway.fullname" . }}-ssh-config
+      - name: ssh-keys
+        secret:
+          secretName: {{ .Values.ssh.authorizedKeysSecretName }}
+      {{- end }}
+
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

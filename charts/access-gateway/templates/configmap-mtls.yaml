@@ -1,0 +1,11 @@
+{{- if .Values.mtls.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "access-gateway.fullname" . }}-mtls-config
+  labels:
+    {{- include "access-gateway.labels" . | nindent 4 }}
+data:
+  envoy.yaml: |
+    {{- include "access-gateway.envoyConfig" . | nindent 4 }}
+{{- end }}

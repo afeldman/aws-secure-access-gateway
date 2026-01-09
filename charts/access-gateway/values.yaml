@@ -1,0 +1,117 @@
+# Default values for access-gateway chart.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  # Using a simple busybox image for the main container for now.
+  # The actual logic will be in sidecars.
+  repository: busybox
+  pullPolicy: IfNotPresent
+  tag: "1.36"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 2000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+    - ALL
+
+service:
+  type: ClusterIP
+  port: 80
+
+# Feature flags
+mtls:
+  enabled: true
+  # Configuration for the mTLS sidecar (e.g., Envoy)
+  proxy:
+    image: envoyproxy/envoy:v1.28.0
+    port: 10000
+    adminPort: 9901
+    upstreamHost: localhost
+    upstreamPort: 8080
+  certSecretName: mtls-certs
+  configMapName: ""
+
+ssh:
+  enabled: false
+  # Configuration for the SSH sidecar
+  image: sickp/alpine-sshd:7.5
+  port: 2222
+  authorizedKeysSecretName: ssh-authorized-keys
+
+twingate:
+  enabled: false
+  # Configuration for the Twingate sidecar
+  image: twingate/connector:latest
+
+# We will define a placeholder for ExternalSecrets integration
+externalSecrets:
+  enabled: false
+  # name of the ExternalSecret object to be created
+  name: "gateway-secrets"
+  # refresh interval for ExternalSecret
+  refreshInterval: 1h
+  # backendType refers to the secret store (e.g., 'awsSecretsManager' or 'awsParameterStore')
+  backendType: "awsParameterStore"
+  # dataFrom path where secrets are stored
+  path: "/production/gateway/"
+  # secret mapping for mTLS certificates
+  mtls:
+    enabled: true
+    secretName: mtls-certs
+    keys:
+      ca: ca.crt
+      cert: tls.crt
+      key: tls.key
+  ssh:
+    enabled: false
+    secretName: ssh-authorized-keys
+    key: authorized_keys
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# PodDisruptionBudget for High Availability
+pdb:
+  enabled: false
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+  extraEgress: []
