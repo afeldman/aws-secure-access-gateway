@@ -28,12 +28,62 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # Allow in-namespace traffic
+    # Allow in-namespace traffic (but NOT to Honeytrap)
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ .Release.Namespace }}
+        - podSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/component
+              operator: NotIn
+              values:
+                - honeytrap
     {{- with .Values.networkPolicy.extraEgress }}
     {{ toYaml . | nindent 4 }}
     {{- end }}
+
+---
+# SecurityPolicy for Honeytrap: Strict isolation to prevent it from being an access path
+{{- if .Values.honeytrap.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "access-gateway.fullname" . }}-honeytrap-isolation
+  labels:
+    {{- include "access-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: honeytrap
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "access-gateway.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: honeytrap
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Honeytrap can receive traffic on its honeypot ports from within namespace only
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+      ports:
+        {{- range .Values.honeytrap.ports }}
+        - protocol: {{ default "TCP" .protocol }}
+          port: {{ .port }}
+        {{- end }}
+  egress:
+    # Honeytrap: DNS only (no other network access)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Honeytrap: DENY access to all other namespaces and services
+    # This ensures Honeytrap cannot be used as an access path
+{{- end }}
 {{- end }}

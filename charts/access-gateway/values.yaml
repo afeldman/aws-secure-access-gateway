@@ -42,6 +42,9 @@ service:
   type: ClusterIP
   port: 80
 
+# Unified access mode selector
+accessMode: mtls
+
 # Feature flags
 mtls:
   enabled: true
@@ -77,6 +80,92 @@ twingate:
   accessTokenKey: access_token
   refreshTokenSecretName: twingate-refresh-token
   refreshTokenKey: refresh_token
+
+honeytrap:
+  enabled: false
+  # Honeytrap container image (Rust-based deception/detection)
+  image: ghcr.io/afeldman/honeytrap:latest
+  pullPolicy: IfNotPresent
+  # Deployment replicas (usually 1, can scale for redundancy)
+  replicaCount: 1
+  # Ports exposed by Honeytrap honeypots (fake services)
+  ports:
+    - name: honeytrap-ssh
+      port: 2223
+      protocol: TCP
+    - name: honeytrap-tcp
+      port: 10023
+      protocol: TCP
+  # Probes for Honeytrap health checking
+  probes:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+  # Log level for Honeytrap
+  logLevel: "info"
+  # Configuration source (ConfigMap or Secret)
+  config:
+    inline: |
+      [network]
+      bind_addr = "0.0.0.0:2223"
+      timeout = 300
+
+      [logging]
+      level = "info"
+      format = "json"
+      file = "/var/log/honeytrap/honeytrap.log"
+
+      # CRITICAL: Authentication is disabled
+      # Honeytrap is for deception only, NOT for real access
+      [auth]
+      enabled = false
+
+      [[honeypots]]
+      port = 2223
+      service_type = "ssh"
+      interaction_level = "minimal"
+      banner = "OpenSSH_7.4 (honeypot)"
+
+      [[honeypots]]
+      port = 10023
+      service_type = "tcp"
+      interaction_level = "minimal"
+
+      # Anomaly detection (if supported)
+      [detection]
+      enabled = true
+      heuristics = ["port_scan", "credential_enumeration"]
+
+  # ConfigMap or Secret name for Honeytrap config
+  configMapName: ""
+  configSecretName: ""
+  configSecretKey: honeytrap.toml
+  
+  # Pod annotations (e.g., for Prometheus scraping)
+  podAnnotations:
+    security-component: "deception-only"
+    alert-on-auth: "true"
+  
+  # Resource limits for Honeytrap container
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  
+  # Node selection for Honeytrap
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  
+  # Pod Disruption Budget (for HA)
+  pdb:
+    enabled: false
+    minAvailable: 0
 
 # We will define a placeholder for ExternalSecrets integration
 externalSecrets:

@@ -5,26 +5,33 @@ exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&
 echo "[userdata] bootstrap starting"
 
 # --- Variables from Terraform ---
-CREDENTIAL_SOURCE="${credential_source}"
-ENABLE_MTLS="${enable_mtls}"
-ENABLE_SSH="${enable_ssh}"
-ENABLE_TWINGATE="${enable_twingate}"
-TRUSTED_FORWARDER_CIDR="${trusted_forwarder_cidr}"
-twingate_network="${twingate_network}"
-twingate_access_param="${twingate_access_token_param}"
-twingate_refresh_param="${twingate_refresh_token_param}"
-SERVICE_NAME="${service_name}"
-ENVIRONMENT="${environment}"
-AWS_REGION="${region}"
-ONEPASSWORD_VAULT="${onepassword_vault}"
-ONEPASSWORD_ITEM_PREFIX="${onepassword_item_prefix}"
-ONEPASSWORD_CONNECT_HOST="${onepassword_connect_host}"
-ONEPASSWORD_CONNECT_TOKEN_PARAM="${onepassword_connect_token_param}"
-LOG_GROUP_NAME="${log_group_name}"
-ENABLE_CW_METRICS="${enable_cloudwatch_metrics}"
-CW_NAMESPACE="${cloudwatch_namespace}"
+CREDENTIAL_SOURCE="${CREDENTIAL_SOURCE}"
+ACCESS_MODE="${ACCESS_MODE}"
+ENABLE_MTLS="${ENABLE_MTLS}"
+ENABLE_SSH="${ENABLE_SSH}"
+ENABLE_TWINGATE="${ENABLE_TWINGATE}"
+ENABLE_HONEYTRAP="${ENABLE_HONEYTRAP}"
+TRUSTED_FORWARDER_CIDR="${TRUSTED_FORWARDER_CIDR}"
+TWINGATE_NETWORK="${TWINGATE_NETWORK}"
+TWINGATE_ACCESS_PARAM="${TWINGATE_ACCESS_TOKEN_PARAM}"
+TWINGATE_REFRESH_PARAM="${TWINGATE_REFRESH_TOKEN_PARAM}"
+HONEYTRAP_IMAGE="${HONEYTRAP_IMAGE}"
+HONEYTRAP_PORTS="${HONEYTRAP_PORTS}"
+HONEYTRAP_CONFIG_PARAM="${HONEYTRAP_CONFIG_PARAM}"
+HONEYTRAP_LOG_GROUP="${HONEYTRAP_LOG_GROUP_NAME}"
+SERVICE_NAME="${SERVICE_NAME}"
+ENVIRONMENT="${ENVIRONMENT}"
+AWS_REGION="${REGION}"
+ONEPASSWORD_VAULT="${ONEPASSWORD_VAULT}"
+ONEPASSWORD_ITEM_PREFIX="${ONEPASSWORD_ITEM_PREFIX}"
+ONEPASSWORD_CONNECT_HOST="${ONEPASSWORD_CONNECT_HOST}"
+ONEPASSWORD_CONNECT_TOKEN_PARAM="${ONEPASSWORD_CONNECT_TOKEN_PARAM}"
+LOG_GROUP_NAME="${LOG_GROUP_NAME}"
+ENABLE_CW_LOGS="${ENABLE_CW_LOGS}"
+ENABLE_CW_METRICS="${ENABLE_CW_METRICS}"
+CW_NAMESPACE="${CW_NAMESPACE}"
 
-export AWS_DEFAULT_REGION="${region}"
+export AWS_DEFAULT_REGION="${REGION}"
 
 enabled_modes=0
 enabled_labels=()
@@ -52,6 +59,8 @@ fi
 if [ -n "${TRUSTED_FORWARDER_CIDR}" ]; then
   echo "[userdata] trusted forwarder CIDRs: ${TRUSTED_FORWARDER_CIDR}"
 fi
+
+echo "[userdata] access_mode=${ACCESS_MODE} honeytrap=${ENABLE_HONEYTRAP}"
 
 ## Install core dependencies
 echo "[userdata] installing dependencies (docker, kubectl)"
@@ -106,7 +115,7 @@ fetch_credential() {
         exit 1
       fi
       local item_name
-      item_name="${ONEPASSWORD_ITEM_PREFIX}${key//\//-}"
+      item_name=$(echo "${ONEPASSWORD_ITEM_PREFIX}${key}" | sed 's/\//-/g')
       op read "op://${ONEPASSWORD_VAULT}/${item_name}"
       ;;
     *)
@@ -142,48 +151,70 @@ EOF
 fi
 
 ## CloudWatch Logs shipping
-if [ "${LOG_GROUP_NAME}" != "" ]; then
+if [ "${ENABLE_CW_LOGS}" = "true" ] && [ "${LOG_GROUP_NAME}" != "" ]; then
   echo "[userdata] configuring CloudWatch Logs"
   sudo mkdir -p /var/log/envoy
-  METRICS_BLOCK=""
+  
+  CW_AGENT_CONFIG="{\"logs\": {\"logs_collected\": {\"files\": {\"collect_list\": [{\"file_path\": \"/var/log/user-data.log\", \"log_group_name\": \"${LOG_GROUP_NAME}\", \"log_stream_name\": \"{instance_id}/user-data\", \"timestamp_format\": \"%Y-%m-%d %H:%M:%S\"}, {\"file_path\": \"/var/log/envoy/envoy.log\", \"log_group_name\": \"${LOG_GROUP_NAME}\", \"log_stream_name\": \"{instance_id}/envoy\", \"timestamp_format\": \"%Y-%m-%d %H:%M:%S\"}, {\"file_path\": \"/var/log/secure\", \"log_group_name\": \"${LOG_GROUP_NAME}\", \"log_stream_name\": \"{instance_id}/secure\"}, {\"file_path\": \"/var/log/messages\", \"log_group_name\": \"${LOG_GROUP_NAME}\", \"log_stream_name\": \"{instance_id}/messages\"}]}}}"
+  
   if [ "${ENABLE_CW_METRICS}" = "true" ]; then
-    read -r -d '' METRICS_BLOCK <<'JSON' || true
-    ,
-    "metrics": {
-      "namespace": "${CW_NAMESPACE}",
-      "append_dimensions": {
-        "InstanceId": "${aws:InstanceId}",
-        "AutoScalingGroupName": "${aws:AutoScalingGroupName}"
-      },
-      "metrics_collected": {
-        "mem": {"measurement": ["mem_used_percent"], "metrics_collection_interval": 60},
-        "swap": {"measurement": ["swap_used_percent"], "metrics_collection_interval": 60},
-        "disk": {"measurement": ["disk_used_percent"], "resources": ["/"], "metrics_collection_interval": 60},
-        "netstat": {"metrics_collection_interval": 60},
-        "cpu": {"measurement": ["cpu_usage_active"], "metrics_collection_interval": 60}
-      }
-    }
-JSON
+    CW_AGENT_CONFIG="{\"logs\": {\"logs_collected\": {\"files\": {\"collect_list\": [{\"file_path\": \"/var/log/user-data.log\", \"log_group_name\": \"${LOG_GROUP_NAME}\", \"log_stream_name\": \"{instance_id}/user-data\", \"timestamp_format\": \"%Y-%m-%d %H:%M:%S\"}, {\"file_path\": \"/var/log/envoy/envoy.log\", \"log_group_name\": \"${LOG_GROUP_NAME}\", \"log_stream_name\": \"{instance_id}/envoy\", \"timestamp_format\": \"%Y-%m-%d %H:%M:%S\"}, {\"file_path\": \"/var/log/secure\", \"log_group_name\": \"${LOG_GROUP_NAME}\", \"log_stream_name\": \"{instance_id}/secure\"}, {\"file_path\": \"/var/log/messages\", \"log_group_name\": \"${LOG_GROUP_NAME}\", \"log_stream_name\": \"{instance_id}/messages\"}]}}, \"metrics\": {\"namespace\": \"${CW_NAMESPACE}\", \"append_dimensions\": {\"InstanceId\": \"$${aws:InstanceId}\", \"AutoScalingGroupName\": \"$${aws:AutoScalingGroupName}\"}, \"metrics_collected\": {\"mem\": {\"measurement\": [\"mem_used_percent\"], \"metrics_collection_interval\": 60}, \"swap\": {\"measurement\": [\"swap_used_percent\"], \"metrics_collection_interval\": 60}, \"disk\": {\"measurement\": [\"disk_used_percent\"], \"resources\": [\"/\"], \"metrics_collection_interval\": 60}, \"netstat\": {\"metrics_collection_interval\": 60}, \"cpu\": {\"measurement\": [\"cpu_usage_active\"], \"metrics_collection_interval\": 60}}}}"
   fi
 
-  cat <<EOF | sudo tee /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json >/dev/null
-{
-  "logs": {
-    "logs_collected": {
-      "files": {
-        "collect_list": [
-          {"file_path": "/var/log/user-data.log", "log_group_name": "${LOG_GROUP_NAME}", "log_stream_name": "{instance_id}/user-data", "timestamp_format": "%Y-%m-%d %H:%M:%S"},
-          {"file_path": "/var/log/envoy/envoy.log", "log_group_name": "${LOG_GROUP_NAME}", "log_stream_name": "{instance_id}/envoy", "timestamp_format": "%Y-%m-%d %H:%M:%S"},
-          {"file_path": "/var/log/secure", "log_group_name": "${LOG_GROUP_NAME}", "log_stream_name": "{instance_id}/secure"},
-          {"file_path": "/var/log/messages", "log_group_name": "${LOG_GROUP_NAME}", "log_stream_name": "{instance_id}/messages"}
-        ]
-      }
-    }
-  }${METRICS_BLOCK}
-}
-EOF
+  echo "${CW_AGENT_CONFIG}" | sudo tee /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json >/dev/null
   sudo systemctl enable amazon-cloudwatch-agent
   sudo systemctl start amazon-cloudwatch-agent
+fi
+
+## Honeytrap decoy
+if [ "${ENABLE_HONEYTRAP}" = "true" ]; then
+  echo "[userdata] configuring Honeytrap decoy"
+  sudo mkdir -p /etc/honeytrap /var/log/honeytrap
+  HONEYTRAP_CONFIG_FILE="/etc/honeytrap/config.toml"
+
+  if [ -n "${HONEYTRAP_PORTS}" ]; then
+    # Split space-separated ports into array
+    for port in ${HONEYTRAP_PORTS}; do
+      HONEYTRAP_PORT_LIST+=( "$port" )
+    done
+  else
+    HONEYTRAP_PORT_LIST=(2223 10023)
+  fi
+
+  if [ -n "${HONEYTRAP_CONFIG_PARAM}" ]; then
+    echo "[userdata] fetching Honeytrap config from ${HONEYTRAP_CONFIG_PARAM}"
+    fetch_credential "${HONEYTRAP_CONFIG_PARAM}" | sudo tee "${HONEYTRAP_CONFIG_FILE}" >/dev/null
+  else
+    echo "[userdata] writing default Honeytrap config"
+    HONEYTRAP_CONFIG=$(cat <<'CFGEOF'
+[network]
+bind_addr = "0.0.0.0:2223"
+
+[logging]
+level = "info"
+
+[[honeypots]]
+port = 2223
+service_type = "ssh"
+interaction_level = "minimal"
+
+[[honeypots]]
+port = 10023
+service_type = "ssh"
+interaction_level = "minimal"
+CFGEOF
+)
+    echo "${HONEYTRAP_CONFIG}" | sudo tee "${HONEYTRAP_CONFIG_FILE}" >/dev/null
+  fi
+
+  HONEYTRAP_DOCKER_CMD="sudo docker run -d --name honeytrap --restart unless-stopped -v ${HONEYTRAP_CONFIG_FILE}:${HONEYTRAP_CONFIG_FILE}:ro --net=host --env HONEYTRAP_CONFIG=${HONEYTRAP_CONFIG_FILE}"
+  
+  if [ "${ENABLE_CW_LOGS}" = "true" ] && [ -n "${HONEYTRAP_LOG_GROUP}" ]; then
+    HONEYTRAP_DOCKER_CMD="${HONEYTRAP_DOCKER_CMD} --log-driver awslogs --log-opt awslogs-region=${AWS_REGION} --log-opt awslogs-group=${HONEYTRAP_LOG_GROUP} --log-opt awslogs-stream={instance_id}/honeytrap"
+  fi
+  
+  HONEYTRAP_DOCKER_CMD="${HONEYTRAP_DOCKER_CMD} ${HONEYTRAP_IMAGE}"
+  eval "${HONEYTRAP_DOCKER_CMD}"
 fi
 
 ## SSH fallback hardening (only when mTLS disabled)
@@ -244,7 +275,7 @@ if [ "${ENABLE_TWINGATE}" = "true" ]; then
         "ssm")
           aws ssm get-parameter --name "$param_override" --with-decryption --query Parameter.Value --output text --region "${AWS_REGION}" ;;
         "1password")
-          install_op_cli; ensure_op_env; op read "op://${ONEPASSWORD_VAULT}/${ONEPASSWORD_ITEM_PREFIX}${param_override//\//-}" ;;
+          install_op_cli; ensure_op_env; param_item=$(echo "${ONEPASSWORD_ITEM_PREFIX}${param_override}" | sed 's/\//-/g'); op read "op://${ONEPASSWORD_VAULT}/${param_item}" ;;
         *) echo "[userdata] unsupported credential source" >&2; exit 1 ;;
       esac
     else
@@ -262,16 +293,13 @@ TWINGATE_REFRESH_TOKEN=${TWINGATE_REFRESH_TOKEN}
 TWINGATE_LABEL_HOSTNAME=$(hostname)
 EOF
 
-  DOCKER_LOG_OPTS=()
-  if [ "${LOG_GROUP_NAME}" != "" ]; then
-    DOCKER_LOG_OPTS+=(--log-driver awslogs --log-opt awslogs-region=${AWS_REGION} --log-opt awslogs-group=${LOG_GROUP_NAME} --log-opt awslogs-stream=\{instance_id\}/twingate)
+  DOCKER_CMD="sudo docker run -d --name twingate-connector --restart unless-stopped --env-file /etc/twingate/env --net=host"
+  if [ "${ENABLE_CW_LOGS}" = "true" ] && [ "${LOG_GROUP_NAME}" != "" ]; then
+    DOCKER_CMD="${DOCKER_CMD} --log-driver awslogs --log-opt awslogs-region=${AWS_REGION} --log-opt awslogs-group=${LOG_GROUP_NAME} --log-opt awslogs-stream={instance_id}/twingate"
   fi
-
-  sudo docker run -d --name twingate-connector --restart unless-stopped \
-    --env-file /etc/twingate/env \
-    --net=host \
-    ${DOCKER_LOG_OPTS[@]} \
-    twingate/connector:latest
+  DOCKER_CMD="${DOCKER_CMD} twingate/connector:latest"
+  
+  eval "${DOCKER_CMD}"
 fi
 
 echo "[userdata] bootstrap completed"

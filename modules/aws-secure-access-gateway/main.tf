@@ -11,8 +11,17 @@ terraform {
 }
 
 locals {
-  resource_name = "${var.service_name}-${var.environment}-access-gateway"
-  log_group_name = var.log_group_name != "" ? var.log_group_name : "/aws/access-gateway/${var.service_name}/${var.environment}"
+  access_mode = var.access_mode != "" ? var.access_mode : (
+    var.enable_twingate ? "twingate" :
+    var.enable_ssh ? "ssh" :
+    "mtls"
+  )
+  mode_mtls                = local.access_mode == "mtls"
+  mode_ssh                 = local.access_mode == "ssh"
+  mode_twingate            = local.access_mode == "twingate"
+  resource_name            = "${var.service_name}-${var.environment}-access-gateway"
+  log_group_name           = var.log_group_name != "" ? var.log_group_name : "/aws/access-gateway/${var.service_name}/${var.environment}"
+  honeytrap_log_group_name = var.honeytrap_log_group_name != "" ? var.honeytrap_log_group_name : "${local.log_group_name}/honeytrap"
   tags = merge(
     var.tags,
     {
@@ -95,15 +104,15 @@ resource "aws_iam_policy" "ssm_credential_access" {
       ] : [],
       var.twingate_access_token_param != "" ? [
         {
-          Action = ["ssm:GetParameter", "ssm:GetParameters"],
-          Effect = "Allow",
+          Action   = ["ssm:GetParameter", "ssm:GetParameters"],
+          Effect   = "Allow",
           Resource = "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.twingate_access_token_param}"
         }
       ] : [],
       var.twingate_refresh_token_param != "" ? [
         {
-          Action = ["ssm:GetParameter", "ssm:GetParameters"],
-          Effect = "Allow",
+          Action   = ["ssm:GetParameter", "ssm:GetParameters"],
+          Effect   = "Allow",
           Resource = "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.twingate_refresh_token_param}"
         }
       ] : []
@@ -116,6 +125,13 @@ resource "aws_cloudwatch_log_group" "gateway" {
   count             = var.enable_cloudwatch_logs ? 1 : 0
   name              = local.log_group_name
   retention_in_days = var.log_retention_days
+  tags              = local.tags
+}
+
+resource "aws_cloudwatch_log_group" "honeytrap" {
+  count             = var.enable_cloudwatch_logs && var.enable_honeytrap ? 1 : 0
+  name              = local.honeytrap_log_group_name
+  retention_in_days = var.honeytrap_log_retention_days
   tags              = local.tags
 }
 
@@ -132,12 +148,18 @@ resource "aws_iam_policy" "cloudwatch_logging" {
           "logs:CreateLogStream",
           "logs:PutLogEvents"
         ],
-        Resource = "${aws_cloudwatch_log_group.gateway[0].arn}:*"
+        Resource = concat(
+          ["${aws_cloudwatch_log_group.gateway[0].arn}:*"],
+          var.enable_honeytrap ? ["${aws_cloudwatch_log_group.honeytrap[0].arn}:*"] : []
+        )
       },
       {
         Effect = "Allow",
         Action = ["logs:CreateLogGroup"],
-        Resource = "${aws_cloudwatch_log_group.gateway[0].arn}"
+        Resource = concat(
+          [aws_cloudwatch_log_group.gateway[0].arn],
+          var.enable_honeytrap ? [aws_cloudwatch_log_group.honeytrap[0].arn] : []
+        )
       }
     ]
   })
@@ -177,7 +199,7 @@ resource "aws_security_group" "gateway" {
   # No ingress rules are needed as access is via SSM Session Manager.
 
   dynamic "ingress" {
-    for_each = length(var.trusted_forwarder_cidr) > 0 && var.enable_mtls ? [1] : []
+    for_each = length(var.trusted_forwarder_cidr) > 0 && local.mode_mtls ? [1] : []
     content {
       description = "Trusted forwarder mTLS access"
       from_port   = 10000
@@ -188,11 +210,22 @@ resource "aws_security_group" "gateway" {
   }
 
   dynamic "ingress" {
-    for_each = length(var.trusted_forwarder_cidr) > 0 && var.enable_ssh ? [1] : []
+    for_each = length(var.trusted_forwarder_cidr) > 0 && local.mode_ssh ? [1] : []
     content {
       description = "Trusted forwarder SSH access"
       from_port   = 2222
       to_port     = 2222
+      protocol    = "tcp"
+      cidr_blocks = var.trusted_forwarder_cidr
+    }
+  }
+
+  dynamic "ingress" {
+    for_each = length(var.trusted_forwarder_cidr) > 0 && var.enable_honeytrap ? toset(var.honeytrap_ports) : []
+    content {
+      description = "Trusted forwarder honeytrap access"
+      from_port   = ingress.value
+      to_port     = ingress.value
       protocol    = "tcp"
       cidr_blocks = var.trusted_forwarder_cidr
     }
@@ -224,9 +257,9 @@ resource "aws_security_group" "gateway" {
 
   # Required for SSM Session Manager.
   egress {
-    from_port       = 443
-    to_port         = 443
-    protocol        = "tcp"
+    from_port = 443
+    to_port   = 443
+    protocol  = "tcp"
     prefix_list_ids = [
       data.aws_prefix_list.ssm.id,
       data.aws_prefix_list.ssmmessages.id,
@@ -258,46 +291,53 @@ resource "aws_instance" "gateway" {
 
   associate_public_ip_address = false
 
-  iam_instance_profile = aws_iam_instance_profile.gateway_instance.name
+  iam_instance_profile   = aws_iam_instance_profile.gateway_instance.name
   vpc_security_group_ids = [aws_security_group.gateway.id]
 
   user_data_base64 = base64encode(templatefile("${path.module}/templates/userdata.sh.tpl", {
-    credential_source = var.credential_source
-    enable_mtls       = var.enable_mtls
-    enable_ssh        = var.enable_ssh
-    enable_twingate   = var.enable_twingate
-    trusted_forwarder_cidr = var.trusted_forwarder_cidr
-    twingate_network  = var.twingate_network
-    twingate_access_token_param = var.twingate_access_token_param
-    twingate_refresh_token_param = var.twingate_refresh_token_param
-    service_name      = var.service_name
-    environment       = var.environment
-    region            = var.region
-    onepassword_vault = var.onepassword_vault
-    onepassword_item_prefix = var.onepassword_item_prefix
-    onepassword_connect_host = var.onepassword_connect_host
-    onepassword_connect_token_param = var.onepassword_connect_token_param
-    log_group_name    = local.log_group_name
-    enable_cloudwatch_metrics = var.enable_cloudwatch_metrics
-    cloudwatch_namespace      = var.cloudwatch_namespace
-    envoy_config      = templatefile("${path.module}/templates/envoy-config.yaml.tpl", {
+    CREDENTIAL_SOURCE               = var.credential_source
+    ACCESS_MODE                     = local.access_mode
+    ENABLE_MTLS                     = local.mode_mtls ? "true" : "false"
+    ENABLE_SSH                      = local.mode_ssh ? "true" : "false"
+    ENABLE_TWINGATE                 = local.mode_twingate ? "true" : "false"
+    ENABLE_HONEYTRAP                = var.enable_honeytrap ? "true" : "false"
+    TRUSTED_FORWARDER_CIDR          = join(",", var.trusted_forwarder_cidr)
+    TWINGATE_NETWORK                = var.twingate_network
+    TWINGATE_ACCESS_TOKEN_PARAM     = var.twingate_access_token_param
+    TWINGATE_REFRESH_TOKEN_PARAM    = var.twingate_refresh_token_param
+    HONEYTRAP_IMAGE                 = var.honeytrap_image
+    HONEYTRAP_PORTS                 = join(" ", [for p in var.honeytrap_ports : tostring(p)])
+    HONEYTRAP_CONFIG_PARAM          = var.honeytrap_config_param
+    HONEYTRAP_LOG_GROUP_NAME        = local.honeytrap_log_group_name
+    SERVICE_NAME                    = var.service_name
+    ENVIRONMENT                     = var.environment
+    REGION                          = var.region
+    ONEPASSWORD_VAULT               = var.onepassword_vault
+    ONEPASSWORD_ITEM_PREFIX         = var.onepassword_item_prefix
+    ONEPASSWORD_CONNECT_HOST        = var.onepassword_connect_host
+    ONEPASSWORD_CONNECT_TOKEN_PARAM = var.onepassword_connect_token_param
+    LOG_GROUP_NAME                  = local.log_group_name
+    ENABLE_CW_LOGS                  = var.enable_cloudwatch_logs ? "true" : "false"
+    ENABLE_CW_METRICS               = var.enable_cloudwatch_metrics ? "true" : "false"
+    CW_NAMESPACE                    = var.cloudwatch_namespace
+    envoy_config = templatefile("${path.module}/templates/envoy-config.yaml.tpl", {
       listener_port = 10000
       upstream_host = "localhost"
       upstream_port = 8080
     })
   }))
 
-    metadata_options {
-      http_tokens   = "required"   # Enforce IMDSv2
-      http_endpoint = "enabled"
-    }
+  metadata_options {
+    http_tokens   = "required" # Enforce IMDSv2
+    http_endpoint = "enabled"
+  }
 
-    root_block_device {
-      volume_size           = var.root_volume_size
-      volume_type           = "gp3"
-      encrypted             = true
-      delete_on_termination = true
-    }
+  root_block_device {
+    volume_size           = var.root_volume_size
+    volume_type           = "gp3"
+    encrypted             = true
+    delete_on_termination = true
+  }
 
   tags = merge(local.tags, {
     "Name" = local.resource_name

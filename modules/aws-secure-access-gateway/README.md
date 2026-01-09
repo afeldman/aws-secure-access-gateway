@@ -11,6 +11,7 @@ This module is the first building block of the `aws-secure-access-gateway` solut
 - **Zero-Trust Access**: No public inbound ports. Access is established via AWS SSM Session Manager.
 - **mTLS Authentication**: Enforces mutual TLS for secure communication between the developer and the gateway.
 - **Dynamic Credential Management**: Fetches mTLS certificates at runtime from AWS SSM Parameter Store.
+- **Honeytrap Decoy (Optional)**: Deployable honeypot sidecar for deception and detection with CloudWatch logging.
 - **Private EKS Access**: Designed to provide access to services running in private EKS clusters.
 - **Least Privilege IAM Roles**: The gateway instance runs with a minimal set of permissions.
 - **Locked-down Egress**: Security group egress is restricted to the VPC CIDR, DNS, and required SSM endpoints only.
@@ -54,6 +55,13 @@ module "access_gateway" {
 }
 ```
 
+### Access modes and honeytrap
+- Default mTLS: leave `access_mode` empty or set to `"mtls"` (legacy `enable_mtls` remains for compatibility).
+- SSH fallback: set `access_mode = "ssh"` and ensure SSH keys are provided at runtime; this disables mTLS for the instance.
+- Twingate: set `access_mode = "twingate"` to start the connector; tokens are fetched via SSM/1Password.
+- Honeytrap: set `enable_honeytrap = true` to run the decoy listeners on `honeytrap_ports`; logs ship to the dedicated CloudWatch log group when enabled.
+- Trusted forwarder: populate `trusted_forwarder_cidr` to restrict listener exposure to the central forwarder.
+
 ## Inputs
 
 | Name                 | Description                                                               | Type           | Default     | Required |
@@ -66,7 +74,15 @@ module "access_gateway" {
 | `twingate_refresh_token_param` | SSM parameter path for the Twingate refresh token.               | `string`       | `""`       |    no    |
 | `enable_kubectl_access` | Attach AmazonEKSClusterPolicy for kubectl access from the gateway.     | `bool`         | `false`     |    no    |
 | `credential_source`  | The source for fetching credentials. Can be 'ssm' or '1password'.         | `string`       | `"ssm"`     |    no    |
-| *Note* | `enable_ssh` and `enable_mtls` are mutually exclusive; SSH only when mTLS is off. | - | - | - |
+| `access_mode`        | Unified access mode selector: mtls (default), ssh, or twingate. Empty defers to legacy flags. | `string` | `""` | no |
+| `enable_honeytrap`   | Enable Honeytrap deception service alongside the selected access mode.      | `bool`         | `false`      |    no    |
+| `honeytrap_image`    | Honeytrap container image.                                                  | `string`       | `"ghcr.io/afeldman/honeytrap:latest"` | no |
+| `honeytrap_ports`    | Honeytrap listener ports (decoy only).                                      | `list(number)` | `[2223,10023]` | no |
+| `honeytrap_config_param` | Credential key/parameter for Honeytrap config payload.                  | `string`       | `""`        |    no    |
+| `honeytrap_log_group_name` | CloudWatch log group for Honeytrap (defaults to gateway/honeytrap).   | `string`       | `""`        |    no    |
+| `honeytrap_log_retention_days` | Retention for Honeytrap log group.                                | `number`       | `30`         |    no    |
+| `trusted_forwarder_cidr` | List of trusted forwarder CIDRs allowed to hit listeners.               | `list(string)` | `[]`         |    no    |
+| *Note* | Prefer `access_mode` for new deployments; legacy `enable_*` flags remain for backward compatibility. | - | - | - |
 | `onepassword_vault`  | Vault name when using 1Password Connect.                                   | `string`       | `""`        |    no    |
 | `onepassword_item_prefix` | Prefix to prepend to 1Password item names (slashes in keys become dashes). | `string`   | `""`        |    no    |
 | `onepassword_connect_host` | 1Password Connect host URL.                                          | `string`       | `""`        |    no    |

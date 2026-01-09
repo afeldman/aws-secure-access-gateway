@@ -1,4 +1,4 @@
-{{- if .Values.mtls.enabled }}
+{{- if and .Values.mtls.enabled (eq (include "access-gateway.accessMode" .) "mtls") }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

@@ -16,7 +16,7 @@ usage() {
   cat <<'EOF'
 Usage: ./connect.sh [options]
   --target <instance-id>     EC2 instance ID of the gateway (or set GATEWAY_INSTANCE_ID)
-  --mode <mtls|ssh>          Connection mode (default: mtls)
+  --mode <mtls|ssh|twingate> Connection mode (default: mtls)
   --service <name>           Logical service name (for logging/instructions)
   --namespace <ns>           Kubernetes namespace (default: default)
   --local-port <port>        Local port to bind
@@ -46,22 +46,28 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "${TARGET}" ]]; then
-  log "--target is required (or set GATEWAY_INSTANCE_ID)"; exit 1
-fi
-
 case "$MODE" in
   mtls) :;;
   ssh) :;;
-  *) log "invalid --mode (mtls|ssh)"; exit 1;;
+  twingate) :;;
+  *) log "invalid --mode (mtls|ssh|twingate)"; exit 1;;
 esac
+
+if [[ "$MODE" != "twingate" ]] && [[ -z "${TARGET}" ]]; then
+  log "--target is required (or set GATEWAY_INSTANCE_ID)"; exit 1
+fi
 
 if [[ -z "${REMOTE_PORT}" ]]; then
   if [[ "$MODE" == "mtls" ]]; then
     REMOTE_PORT=10000
-  else
+  elif [[ "$MODE" == "ssh" ]]; then
     REMOTE_PORT=2222
   fi
+fi
+
+if [[ "$MODE" == "twingate" ]]; then
+  log "Twingate mode selected; no SSM port-forward started. Use the Twingate client to reach protected resources."
+  exit 0
 fi
 
 if [[ -z "${LOCAL_PORT}" ]]; then

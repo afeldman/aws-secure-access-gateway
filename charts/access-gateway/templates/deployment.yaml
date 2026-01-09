@@ -26,7 +26,7 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       
-      {{- if .Values.mtls.enabled }}
+      {{- if and .Values.mtls.enabled (eq (include "access-gateway.accessMode" .) "mtls") }}
       initContainers:
       - name: wait-secrets
         image: busybox:1.36
@@ -60,7 +60,7 @@ spec:
         resources:
           {{- toYaml .Values.resources | nindent 12 }}
 
-      {{- if .Values.mtls.enabled }}
+      {{- if and .Values.mtls.enabled (eq (include "access-gateway.accessMode" .) "mtls") }}
       - name: envoy-proxy
         image: "{{ .Values.mtls.proxy.image }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -105,7 +105,7 @@ spec:
           readOnly: true
       {{- end }}
 
-      {{- if and .Values.ssh.enabled (not .Values.mtls.enabled) }}
+      {{- if and .Values.ssh.enabled (eq (include "access-gateway.accessMode" .) "ssh") }}
       - name: ssh-server
         image: "{{ .Values.ssh.image }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -121,7 +121,7 @@ spec:
           readOnly: true
       {{- end }}
 
-      {{- if and .Values.twingate.enabled (not .Values.mtls.enabled) (not .Values.ssh.enabled) }}
+      {{- if and .Values.twingate.enabled (eq (include "access-gateway.accessMode" .) "twingate") }}
       - name: twingate-connector
         image: "{{ .Values.twingate.image }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -140,8 +140,27 @@ spec:
               key: {{ .Values.twingate.refreshTokenKey }}
       {{- end }}
 
+      {{- if .Values.honeytrap.enabled }}
+      - name: honeytrap
+        image: "{{ .Values.honeytrap.image }}"
+        imagePullPolicy: {{ .Values.honeytrap.pullPolicy | default .Values.image.pullPolicy }}
+        env:
+        - name: HONEYTRAP_CONFIG
+          value: /etc/honeytrap/config.toml
+        ports:
+        {{- range .Values.honeytrap.ports }}
+        - name: {{ .name }}
+          containerPort: {{ .port }}
+          protocol: {{ default "TCP" .protocol }}
+        {{- end }}
+        volumeMounts:
+        - name: honeytrap-config
+          mountPath: /etc/honeytrap/config.toml
+          subPath: honeytrap.toml
+      {{- end }}
+
       volumes:
-      {{- if .Values.mtls.enabled }}
+      {{- if and .Values.mtls.enabled (eq (include "access-gateway.accessMode" .) "mtls") }}
       - name: mtls-config
         configMap:
           name: {{ default (printf "%s-mtls-config" (include "access-gateway.fullname" .)) .Values.mtls.configMapName }}
@@ -152,7 +171,7 @@ spec:
           # ExternalSecrets or manually.
           secretName: {{ .Values.mtls.certSecretName }}
       {{- end }}
-      {{- if and .Values.ssh.enabled (not .Values.twingate.enabled) }}
+      {{- if and .Values.ssh.enabled (eq (include "access-gateway.accessMode" .) "ssh") }}
       - name: ssh-config
         configMap:
           name: {{ include "access-gateway.fullname" . }}-ssh-config
@@ -160,13 +179,26 @@ spec:
         secret:
           secretName: {{ .Values.ssh.authorizedKeysSecretName }}
       {{- end }}
-      {{- if and .Values.twingate.enabled (not .Values.mtls.enabled) (not .Values.ssh.enabled) }}
+      {{- if and .Values.twingate.enabled (eq (include "access-gateway.accessMode" .) "twingate") }}
       - name: twingate-access-token
         secret:
           secretName: {{ .Values.twingate.accessTokenSecretName }}
       - name: twingate-refresh-token
         secret:
           secretName: {{ .Values.twingate.refreshTokenSecretName }}
+      {{- end }}
+      {{- if .Values.honeytrap.enabled }}
+      - name: honeytrap-config
+        {{- if .Values.honeytrap.configSecretName }}
+        secret:
+          secretName: {{ .Values.honeytrap.configSecretName }}
+          items:
+          - key: {{ .Values.honeytrap.configSecretKey }}
+            path: honeytrap.toml
+        {{- else }}
+        configMap:
+          name: {{ include "access-gateway.fullname" . }}-honeytrap-config
+        {{- end }}
       {{- end }}
 
       {{- with .Values.nodeSelector }}

@@ -11,7 +11,7 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
-    {{- if .Values.mtls.enabled }}
+    {{- if and .Values.mtls.enabled (eq (include "access-gateway.accessMode" .) "mtls") }}
     - port: {{ .Values.mtls.proxy.port }}
       targetPort: mtls
       protocol: TCP
@@ -21,11 +21,19 @@ spec:
       protocol: TCP
       name: admin
     {{- end }}
-    {{- if and .Values.ssh.enabled (not .Values.mtls.enabled) }}
+    {{- if and .Values.ssh.enabled (eq (include "access-gateway.accessMode" .) "ssh") }}
     - port: {{ .Values.ssh.port }}
       targetPort: ssh
       protocol: TCP
       name: ssh
+    {{- end }}
+    {{- if .Values.honeytrap.enabled }}
+    {{- range .Values.honeytrap.ports }}
+    - port: {{ .port }}
+      targetPort: {{ .name }}
+      protocol: {{ default "TCP" .protocol }}
+      name: {{ .name }}
+    {{- end }}
     {{- end }}
   selector:
     {{- include "access-gateway.selectorLabels" . | nindent 4 }}

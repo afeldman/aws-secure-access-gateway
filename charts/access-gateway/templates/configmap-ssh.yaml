@@ -1,4 +1,4 @@
-{{- if and .Values.ssh.enabled (not .Values.mtls.enabled) }}
+{{- if and .Values.ssh.enabled (eq (include "access-gateway.accessMode" .) "ssh") }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

@@ -1,0 +1,72 @@
+{{- if and .Values.honeytrap.enabled (not .Values.honeytrap.configSecretName) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "access-gateway.fullname" . }}-honeytrap-config
+  labels:
+    {{- include "access-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: honeytrap
+  annotations:
+    description: "Honeytrap deception/detection configuration"
+    security-warning: "This is NOT an access path. Honeytrap only detects/deceives attacks."
+data:
+  honeytrap.toml: |
+    # Honeytrap Configuration - Deception & Detection Component
+    # =========================================================
+    # WARNING: Honeytrap is NOT an access path to the Secure Access Gateway
+    # It serves ONLY to detect and deceive potential attackers
+    # All authentication attempts are logged and should trigger alerts
+    
+    {{- if .Values.honeytrap.config.inline }}
+    {{ .Values.honeytrap.config.inline | nindent 4 }}
+    {{- else }}
+    [network]
+    bind_addr = "0.0.0.0:{{ (index .Values.honeytrap.ports 0).port | default 2223 }}"
+    timeout = 300
+
+    [logging]
+    level = "{{ .Values.honeytrap.logLevel | default "info" }}"
+    format = "json"
+    file = "/var/log/honeytrap/honeytrap.log"
+
+    # ========================================================
+    # CRITICAL SECURITY: Authentication is DISABLED
+    # Honeytrap is for deception ONLY
+    # If authentication ever succeeds, it is a critical security event
+    # ========================================================
+    [auth]
+    enabled = false
+    # No real authentication mechanisms
+    
+    # Alert on any authentication attempt
+    [alerts]
+    enabled = true
+    target = "/var/log/honeytrap/alerts.log"
+    on_auth_attempt = "CRITICAL"
+
+    # Honeypots for deception
+    {{- range .Values.honeytrap.ports }}
+    [[honeypots]]
+    port = {{ .port }}
+    {{- if eq .name "honeytrap-ssh" }}
+    service_type = "ssh"
+    banner = "OpenSSH_7.4 (honeypot)"
+    {{- else }}
+    service_type = "tcp"
+    {{- end }}
+    interaction_level = "minimal"
+    
+    {{- end }}
+
+    # Anomaly detection (if supported by Honeytrap)
+    [detection]
+    enabled = true
+    heuristics = ["port_scan", "credential_enumeration", "version_probing"]
+    
+    # Logging for security validation
+    [validation]
+    log_all_connections = true
+    alert_on_successful_auth = "CRITICAL"
+    {{- end }}
+{{- end }}
+

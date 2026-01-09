@@ -1,10 +1,11 @@
 # AWS Secure Access Gateway
 
-Zero-trust access path to private EKS workloads. No public ports, mTLS by default, SSH only as an explicit fallback, optional Twingate connector, and SSM Session Manager for every hop.
+Zero-trust access path to private EKS workloads. No public ports, mTLS by default, SSH only as an explicit fallback, optional Twingate connector, optional Honeytrap deception/detection component, and SSM Session Manager for every hop.
 
 ## What this provides
 - **Gateway host (Terraform):** EC2 in private subnets, SSM-managed, mTLS Envoy proxy, optional SSH-only mode, optional Twingate connector. IAM least privilege, IMDSv2, encrypted root volume, locked-down egress. See [modules/aws-secure-access-gateway](modules/aws-secure-access-gateway).
-- **In-cluster components (Helm):** Conditional sidecars (Envoy/SSH/Twingate), ExternalSecret wiring, NetworkPolicy, PDB, minimal RBAC. See [charts/access-gateway](charts/access-gateway).
+- **In-cluster components (Helm):** Conditional sidecars (Envoy/SSH/Twingate), optional Honeytrap honeypots, ExternalSecret wiring, NetworkPolicy (with Honeytrap isolation), PDB, minimal RBAC. See [charts/access-gateway](charts/access-gateway).
+- **Optional Honeytrap deception (Terraform submodule):** Standalone EC2 instance with fake SSH/TCP services, anomaly detection, CloudWatch Logs/Alarms integration. See [modules/honeytrap-ec2](modules/honeytrap-ec2).
 - **Developer entrypoint:** [connect.sh](connect.sh) starts an SSM port-forwarding session to the gateway and exposes the listener locally (mTLS default, SSH fallback).
 
 ## Prerequisites
@@ -127,7 +128,162 @@ If you need kubectl from your laptop, port-forward the EKS API through Envoy or 
 - mTLS is default; SSH and Twingate are opt-in and mutually exclusive with mTLS in the chart.
 - Secrets are fetched at runtime (SSM or 1Password); no secrets in images or Git.
 
+## Optional: Deploy Honeytrap for deception & detection
+
+**What is Honeytrap?**
+Honeytrap is a Rust-based **deception and detection component** that sits alongside your gateway. It exposes fake SSH/TCP services ("honeypots") to detect and analyze attack attempts. It is **NOT an access path** to your applications; it only serves to deceive attackers and trigger alerts.
+
+### Deploy as standalone EC2 (recommended for production)
+
+Create a Terraform submodule call:
+
+```hcl
+module "honeytrap" {
+  source              = "./modules/honeytrap-ec2"
+  
+  enable_honeytrap    = true
+  vpc_id              = "vpc-0123456789abcdef0"
+  private_subnet_ids  = ["subnet-aaa", "subnet-bbb"]
+  region              = "eu-central-1"
+  
+  # Configure honeypot ports (fake services)
+  honeypot_ports      = [2223, 10023]  # Fake SSH, fake TCP
+  
+  # Restrict access to Honeytrap honeypots (for testing/deception)
+  # Leave empty to disable external access entirely
+  trusted_source_cidr = []
+  
+  # Alerting on suspicious activity
+  alert_sns_topic_arn = "arn:aws:sns:eu-central-1:123456789012:security-alerts"
+  
+  service_name  = "internal-app"
+  environment   = "prod"
+  
+  tags = {
+    environment = "prod"
+    squad       = "platform"
+  }
+}
+```
+
+**Outputs:**
+- `honeytrap_instance_id` – EC2 instance ID
+- `cloudwatch_log_group_name` – Where to find Honeytrap logs
+- `alarm_activity_arn` – Alert on deception triggered
+- `alarm_auth_success_arn` – Critical alarm if auth succeeds (should never happen)
+
+### Deploy in Kubernetes (optional, for in-cluster deception)
+
+Enable in Helm values:
+
+```yaml
+honeytrap:
+  enabled: true
+  image: ghcr.io/afeldman/honeytrap:latest
+  replicaCount: 1
+  ports:
+    - name: honeytrap-ssh
+      port: 2223
+      protocol: TCP
+    - name: honeytrap-tcp
+      port: 10023
+      protocol: TCP
+  logLevel: info
+  probes:
+    enabled: true
+```
+
+### Honeytrap Security Validation
+
+1. **Network Isolation:**
+   - Honeytrap NetworkPolicy restricts egress to DNS only.
+   - Cannot reach real application endpoints or gateway.
+   - Cannot be used as an access path.
+
+2. **Authentication Disabled:**
+   - Configuration explicitly disables all auth mechanisms.
+   - Any successful auth attempt triggers a CRITICAL alarm.
+
+3. **Logging & Alerting:**
+   - All connections logged to CloudWatch Logs.
+   - Structured JSON logs for easy analysis.
+   - Real-time alarms on suspicious patterns.
+
+4. **Validation Queries (CloudWatch Logs Insights):**
+   
+   Find all connection attempts:
+   ```
+   fields @timestamp, remote_ip, port
+   | filter @message like /connection/
+   | stats count() by remote_ip
+   ```
+   
+   Find authentication attempts (should be 0):
+   ```
+   fields @timestamp, @message
+   | filter @message like /auth_attempt|authentication_success/
+   ```
+
+### Honeytrap Architecture
+
+```
+┌─────────────────────────────────────┐
+│ AWS Secure Access Gateway (real)    │
+│ ├─ mTLS Envoy Proxy                 │
+│ └─ Real access to EKS apps          │
+└──────────────┬──────────────────────┘
+               │ (SSM Session Manager)
+               ▼
+        [Developer's laptop]
+
+
+┌─────────────────────────────────────┐
+│ Honeytrap (deception only)          │
+│ ├─ Fake SSH on 2223                 │
+│ ├─ Fake TCP on 10023                │
+│ └─ Anomaly detection                │
+└──────────────┬──────────────────────┘
+               │ (Exposed to tests/scanners)
+               ▼
+     [Attack detection lab]
+```
+
+### Honeytrap Best Practices
+
+1. **Don't expose honeypots to the Internet directly.** Use them for:
+   - Internal red-team testing
+   - Lateral movement detection within VPC
+   - Attacker profiling and analysis
+
+2. **Monitor alarms closely.** Any connection to a honeypot indicates:
+   - Scanning activity in your VPC
+   - Compromised asset attempting lateral movement
+   - Red-team exercise in progress
+
+3. **Ensure authentication never succeeds.** If it does, it's a critical security event:
+   ```bash
+   # Check for auth successes (should be empty)
+   aws logs filter-log-events \
+     --log-group-name "/aws/honeytrap/prod" \
+     --filter-pattern "authentication_success"
+   ```
+
+4. **Keep logs for forensics.** Default retention is 30 days; adjust as needed for compliance.
+
+5. **Test regularly.** Use Terraform outputs to verify logs/alarms are working:
+   ```bash
+   # Check Honeytrap status
+   aws ssm start-session --target $(terraform output -raw honeytrap_instance_id)
+   docker logs honeytrap
+   ```
+
+See [modules/honeytrap-ec2/README.md](modules/honeytrap-ec2/README.md) for detailed configuration, troubleshooting, and security validation.
+
 ## Troubleshooting
 - SSM session fails: verify VPC endpoints for SSM/SSMMessages/EC2Messages and instance profile `AmazonSSMManagedInstanceCore` attached.
 - mTLS handshake fails: confirm client cert chain matches CA in `mtls-certs` and server key/cert paths in SSM/1Password.
 - Envoy health: check CloudWatch log stream `{instance_id}/envoy` or `docker logs envoy` via SSM shell.
+
+## License
+
+This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.

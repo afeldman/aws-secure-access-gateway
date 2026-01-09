@@ -1,0 +1,185 @@
+{{- if .Values.honeytrap.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "access-gateway.fullname" . }}-honeytrap
+  labels:
+    {{- include "access-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: honeytrap
+    app.kubernetes.io/role: deception
+spec:
+  replicas: {{ .Values.honeytrap.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "access-gateway.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: honeytrap
+  template:
+    metadata:
+      {{- with .Values.honeytrap.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "access-gateway.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: honeytrap
+        app.kubernetes.io/role: deception
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "access-gateway.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 2000
+      
+      containers:
+      - name: honeytrap
+        image: "{{ .Values.honeytrap.image }}"
+        imagePullPolicy: {{ .Values.honeytrap.pullPolicy | default .Values.image.pullPolicy }}
+        
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+            add:
+              # Honeytrap needs NET_BIND_SERVICE to bind to ports
+              - NET_BIND_SERVICE
+        
+        env:
+        - name: HONEYTRAP_CONFIG
+          value: /etc/honeytrap/config.toml
+        - name: RUST_LOG
+          value: {{ .Values.honeytrap.logLevel | default "info" }}
+        - name: HONEYTRAP_LOG_LEVEL
+          value: {{ .Values.honeytrap.logLevel | default "info" }}
+        
+        # Security validation: ensure this is clearly marked as deception
+        - name: HONEYTRAP_ROLE
+          value: "deception-only"
+        - name: HONEYTRAP_ALERT_ON_AUTH
+          value: "true"
+        
+        ports:
+        {{- range .Values.honeytrap.ports }}
+        - name: {{ .name }}
+          containerPort: {{ .port }}
+          protocol: {{ default "TCP" .protocol }}
+        {{- end }}
+        
+        {{- if .Values.honeytrap.probes.enabled }}
+        livenessProbe:
+          tcpSocket:
+            port: {{ (index .Values.honeytrap.ports 0).port }}
+          initialDelaySeconds: {{ .Values.honeytrap.probes.initialDelaySeconds | default 10 }}
+          periodSeconds: {{ .Values.honeytrap.probes.periodSeconds | default 30 }}
+          timeoutSeconds: {{ .Values.honeytrap.probes.timeoutSeconds | default 5 }}
+          failureThreshold: {{ .Values.honeytrap.probes.failureThreshold | default 3 }}
+        
+        readinessProbe:
+          tcpSocket:
+            port: {{ (index .Values.honeytrap.ports 0).port }}
+          initialDelaySeconds: {{ .Values.honeytrap.probes.initialDelaySeconds | default 10 }}
+          periodSeconds: {{ .Values.honeytrap.probes.periodSeconds | default 10 }}
+          timeoutSeconds: {{ .Values.honeytrap.probes.timeoutSeconds | default 5 }}
+          failureThreshold: {{ .Values.honeytrap.probes.failureThreshold | default 3 }}
+        {{- end }}
+        
+        volumeMounts:
+        - name: honeytrap-config
+          mountPath: /etc/honeytrap
+          readOnly: true
+        - name: honeytrap-logs
+          mountPath: /var/log/honeytrap
+        - name: tmp
+          mountPath: /tmp
+        
+        resources:
+          {{- toYaml .Values.honeytrap.resources | nindent 12 }}
+      
+      volumes:
+      {{- if .Values.honeytrap.configSecretName }}
+      - name: honeytrap-config
+        secret:
+          secretName: {{ .Values.honeytrap.configSecretName }}
+          items:
+          - key: {{ .Values.honeytrap.configSecretKey | default "honeytrap.toml" }}
+            path: config.toml
+      {{- else }}
+      - name: honeytrap-config
+        configMap:
+          name: {{ include "access-gateway.fullname" . }}-honeytrap-config
+          items:
+          - key: honeytrap.toml
+            path: config.toml
+      {{- end }}
+      
+      - name: honeytrap-logs
+        emptyDir: {}
+      
+      - name: tmp
+        emptyDir: {}
+      
+      {{- with .Values.honeytrap.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      
+      {{- with .Values.honeytrap.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      
+      {{- with .Values.honeytrap.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+---
+# Service for Honeytrap (exposed only within cluster)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "access-gateway.fullname" . }}-honeytrap
+  labels:
+    {{- include "access-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: honeytrap
+  annotations:
+    description: "Service for Honeytrap deception component (internal only)"
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless service - no DNS balancing
+  selector:
+    {{- include "access-gateway.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: honeytrap
+  ports:
+  {{- range .Values.honeytrap.ports }}
+  - name: {{ .name }}
+    port: {{ .port }}
+    protocol: {{ default "TCP" .protocol }}
+    targetPort: {{ .name }}
+  {{- end }}
+
+---
+# PodDisruptionBudget for Honeytrap (optional HA)
+{{- if .Values.honeytrap.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "access-gateway.fullname" . }}-honeytrap
+  labels:
+    {{- include "access-gateway.labels" . | nindent 4 }}
+    app.kubernetes.io/component: honeytrap
+spec:
+  minAvailable: {{ .Values.honeytrap.pdb.minAvailable | default 0 }}
+  selector:
+    matchLabels:
+      {{- include "access-gateway.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: honeytrap
+{{- end }}
+
+{{- end }}

@@ -1,3 +1,13 @@
+variable "access_mode" {
+  description = "Access mode for the gateway. One of: mtls (default), ssh, twingate."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.access_mode == "" || contains(["mtls", "ssh", "twingate"], var.access_mode)
+    error_message = "access_mode must be one of: mtls, ssh, twingate (or empty for default mtls)."
+  }
+}
+
 variable "enable_mtls" {
   description = "Enable mTLS authentication. This is the primary access mode."
   type        = bool
@@ -12,6 +22,12 @@ variable "enable_ssh" {
 
 variable "enable_twingate" {
   description = "Enable Twingate integration."
+  type        = bool
+  default     = false
+}
+
+variable "enable_honeytrap" {
+  description = "Enable Honeytrap deception service alongside the selected access_mode."
   type        = bool
   default     = false
 }
@@ -32,6 +48,36 @@ variable "twingate_refresh_token_param" {
   description = "SSM parameter path holding the Twingate refresh token (WithDecryption)."
   type        = string
   default     = ""
+}
+
+variable "honeytrap_image" {
+  description = "Container image for Honeytrap (decoy honeypot)."
+  type        = string
+  default     = "ghcr.io/afeldman/honeytrap:latest"
+}
+
+variable "honeytrap_ports" {
+  description = "List of ports Honeytrap will bind (fake SSH/TCP)."
+  type        = list(number)
+  default     = [2223, 10023]
+}
+
+variable "honeytrap_config_param" {
+  description = "Optional credential key/parameter for Honeytrap config (fetched at runtime)."
+  type        = string
+  default     = ""
+}
+
+variable "honeytrap_log_group_name" {
+  description = "CloudWatch Logs group for Honeytrap (defaults to /aws/access-gateway/<service>/<env>/honeytrap)."
+  type        = string
+  default     = ""
+}
+
+variable "honeytrap_log_retention_days" {
+  description = "Retention in days for Honeytrap CloudWatch Logs."
+  type        = number
+  default     = 30
 }
 
 variable "trusted_forwarder_cidr" {
@@ -58,26 +104,26 @@ variable "credential_source" {
 
 variable "_validate_mtls_or_ssh" {
   description = "Internal validation to ensure mTLS and SSH are not both enabled."
-  type        = any
-  default     = null
+  type        = bool
+  default     = true
   validation {
-    condition     = !(var.enable_mtls && var.enable_ssh)
+    condition     = var._validate_mtls_or_ssh ? !(var.enable_mtls && var.enable_ssh) : true
     error_message = "enable_ssh can only be true when enable_mtls is false (mutually exclusive)."
   }
 }
 
 variable "_validate_access_mode" {
   description = "Internal validation to ensure access modes are mutually exclusive (mtls | ssh | twingate)."
-  type        = any
-  default     = null
+  type        = bool
+  default     = true
   validation {
-    condition = (
+    condition = var._validate_access_mode ? (
       (
         (var.enable_mtls ? 1 : 0) +
         (var.enable_ssh ? 1 : 0) +
         (var.enable_twingate ? 1 : 0)
       ) <= 1
-    )
+    ) : true
     error_message = "Exactly one of enable_mtls, enable_ssh, enable_twingate may be true."
   }
 }

@@ -45,6 +45,26 @@ If release name contains chart name it will be used as a full name.
 {{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Resolve the configured access mode (mtls|ssh|twingate).
+*/}}
+{{- define "access-gateway.accessMode" -}}
+{{- default "mtls" .Values.accessMode | lower -}}
+{{- end -}}
+
+{{/* Convenience helpers for mode checks */}}
+{{- define "access-gateway.isMTLS" -}}
+{{- eq (include "access-gateway.accessMode" .) "mtls" -}}
+{{- end -}}
+
+{{- define "access-gateway.isSSH" -}}
+{{- eq (include "access-gateway.accessMode" .) "ssh" -}}
+{{- end -}}
+
+{{- define "access-gateway.isTwingate" -}}
+{{- eq (include "access-gateway.accessMode" .) "twingate" -}}
+{{- end -}}
 {{- end -}}
 
 {{/*
