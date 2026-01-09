@@ -77,6 +77,26 @@ spec:
         - name: admin
           containerPort: {{ .Values.mtls.proxy.adminPort }}
           protocol: TCP
+        {{- if .Values.mtls.proxy.probes.enabled }}
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: admin
+            scheme: HTTP
+          initialDelaySeconds: {{ .Values.mtls.proxy.probes.initialDelaySeconds }}
+          periodSeconds: {{ .Values.mtls.proxy.probes.periodSeconds }}
+          timeoutSeconds: {{ .Values.mtls.proxy.probes.timeoutSeconds }}
+          failureThreshold: {{ .Values.mtls.proxy.probes.failureThreshold }}
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: admin
+            scheme: HTTP
+          initialDelaySeconds: {{ .Values.mtls.proxy.probes.initialDelaySeconds }}
+          periodSeconds: {{ .Values.mtls.proxy.probes.periodSeconds }}
+          timeoutSeconds: {{ .Values.mtls.proxy.probes.timeoutSeconds }}
+          failureThreshold: {{ .Values.mtls.proxy.probes.failureThreshold }}
+        {{- end }}
         volumeMounts:
         - name: mtls-config
           mountPath: /etc/envoy

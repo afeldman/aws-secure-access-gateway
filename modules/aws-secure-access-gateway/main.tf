@@ -238,6 +238,8 @@ resource "aws_instance" "gateway" {
     onepassword_connect_host = var.onepassword_connect_host
     onepassword_connect_token_param = var.onepassword_connect_token_param
     log_group_name    = local.log_group_name
+    enable_cloudwatch_metrics = var.enable_cloudwatch_metrics
+    cloudwatch_namespace      = var.cloudwatch_namespace
     envoy_config      = templatefile("${path.module}/templates/envoy-config.yaml.tpl", {
       listener_port = 10000
       upstream_host = "localhost"

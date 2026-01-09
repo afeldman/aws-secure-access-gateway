@@ -77,6 +77,9 @@ module "access_gateway" {
 | `enable_cloudwatch_logs` | Enable CloudWatch log shipping from the gateway.                      | `bool`         | `true`      |    no    |
 | `log_group_name`     | CloudWatch Logs group for gateway logs (defaults to /aws/access-gateway/<service>/<env>). | `string` | `""` | no |
 | `log_retention_days` | Retention in days for CloudWatch Logs.                                    | `number`       | `30`        |    no    |
+| `enable_cloudwatch_metrics` | Enable CloudWatch agent metrics collection.                         | `bool`         | `true`      |    no    |
+| `cloudwatch_namespace` | Namespace for host metrics published by the CloudWatch agent.          | `string`       | `"AccessGateway"` | no |
+| `cloudwatch_log_group_name (output)` | Name of the CloudWatch log group receiving gateway logs.   | output         | -           |   -      |
 | `instance_type`      | EC2 instance type for the gateway host.                                   | `string`       | `"t3.micro"` |    no    |
 | `root_volume_size`   | Root volume size in GiB for the gateway instance.                         | `number`       | `20`         |    no    |
 | `tags`               | A map of tags to apply to all resources.                                  | `map(string)`  | `{}`        |    no    |

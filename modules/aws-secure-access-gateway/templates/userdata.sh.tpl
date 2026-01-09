@@ -17,6 +17,8 @@ ONEPASSWORD_ITEM_PREFIX="${onepassword_item_prefix}"
 ONEPASSWORD_CONNECT_HOST="${onepassword_connect_host}"
 ONEPASSWORD_CONNECT_TOKEN_PARAM="${onepassword_connect_token_param}"
 LOG_GROUP_NAME="${log_group_name}"
+ENABLE_CW_METRICS="${enable_cloudwatch_metrics}"
+CW_NAMESPACE="${cloudwatch_namespace}"
 
 export AWS_DEFAULT_REGION="${region}"
 
@@ -112,28 +114,41 @@ fi
 if [ "${LOG_GROUP_NAME}" != "" ]; then
   echo "[userdata] configuring CloudWatch Logs"
   sudo mkdir -p /var/log/envoy
+  METRICS_BLOCK=""
+  if [ "${ENABLE_CW_METRICS}" = "true" ]; then
+    read -r -d '' METRICS_BLOCK <<'JSON' || true
+    ,
+    "metrics": {
+      "namespace": "${CW_NAMESPACE}",
+      "append_dimensions": {
+        "InstanceId": "${aws:InstanceId}",
+        "AutoScalingGroupName": "${aws:AutoScalingGroupName}"
+      },
+      "metrics_collected": {
+        "mem": {"measurement": ["mem_used_percent"], "metrics_collection_interval": 60},
+        "swap": {"measurement": ["swap_used_percent"], "metrics_collection_interval": 60},
+        "disk": {"measurement": ["disk_used_percent"], "resources": ["/"], "metrics_collection_interval": 60},
+        "netstat": {"metrics_collection_interval": 60},
+        "cpu": {"measurement": ["cpu_usage_active"], "metrics_collection_interval": 60}
+      }
+    }
+JSON
+  fi
+
   cat <<EOF | sudo tee /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json >/dev/null
 {
   "logs": {
     "logs_collected": {
       "files": {
         "collect_list": [
-          {
-            "file_path": "/var/log/user-data.log",
-            "log_group_name": "${LOG_GROUP_NAME}",
-            "log_stream_name": "{instance_id}/user-data",
-            "timestamp_format": "%Y-%m-%d %H:%M:%S"
-          },
-          {
-            "file_path": "/var/log/envoy/envoy.log",
-            "log_group_name": "${LOG_GROUP_NAME}",
-            "log_stream_name": "{instance_id}/envoy",
-            "timestamp_format": "%Y-%m-%d %H:%M:%S"
-          }
+          {"file_path": "/var/log/user-data.log", "log_group_name": "${LOG_GROUP_NAME}", "log_stream_name": "{instance_id}/user-data", "timestamp_format": "%Y-%m-%d %H:%M:%S"},
+          {"file_path": "/var/log/envoy/envoy.log", "log_group_name": "${LOG_GROUP_NAME}", "log_stream_name": "{instance_id}/envoy", "timestamp_format": "%Y-%m-%d %H:%M:%S"},
+          {"file_path": "/var/log/secure", "log_group_name": "${LOG_GROUP_NAME}", "log_stream_name": "{instance_id}/secure"},
+          {"file_path": "/var/log/messages", "log_group_name": "${LOG_GROUP_NAME}", "log_stream_name": "{instance_id}/messages"}
         ]
       }
     }
-  }
+  }${METRICS_BLOCK}
 }
 EOF
   sudo systemctl enable amazon-cloudwatch-agent

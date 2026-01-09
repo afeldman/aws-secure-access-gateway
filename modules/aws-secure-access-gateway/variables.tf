@@ -105,6 +105,18 @@ variable "log_retention_days" {
   default     = 30
 }
 
+variable "enable_cloudwatch_metrics" {
+  description = "Enable CloudWatch agent metrics (CPU, mem, disk, netstat)."
+  type        = bool
+  default     = true
+}
+
+variable "cloudwatch_namespace" {
+  description = "CloudWatch metrics namespace for gateway host metrics."
+  type        = string
+  default     = "AccessGateway"
+}
+
 variable "instance_type" {
   description = "EC2 instance type for the gateway host."
   type        = string

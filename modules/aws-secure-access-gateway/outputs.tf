@@ -24,3 +24,8 @@ output "audit_logs_url" {
   description = "A pre-configured URL to view the audit logs for this gateway in CloudWatch Logs Insights."
   value       = "https://${var.region}.console.aws.amazon.com/cloudwatch/home?region=${var.region}#logsV2:log-groups/log-group/${replace(replace(local.log_group_name, ":", "%3A"), "/", "$252F")}" # URL-encoded log group
 }
+
+output "cloudwatch_log_group_name" {
+  description = "Name of the CloudWatch log group receiving gateway logs."
+  value       = local.log_group_name
+}

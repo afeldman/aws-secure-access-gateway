@@ -52,6 +52,12 @@ mtls:
     adminPort: 9901
     upstreamHost: localhost
     upstreamPort: 8080
+    probes:
+      enabled: true
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 2
+      failureThreshold: 3
   certSecretName: mtls-certs
   configMapName: ""
 
