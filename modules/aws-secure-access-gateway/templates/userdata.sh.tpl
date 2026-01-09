@@ -4,6 +4,11 @@ exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&
 
 echo "[userdata] bootstrap starting"
 
+if [ "${ENABLE_MTLS}" = "true" ] && [ "${ENABLE_SSH}" = "true" ]; then
+  echo "[userdata] ERROR: enable_mtls and enable_ssh cannot both be true" >&2
+  exit 1
+fi
+
 # --- Variables from Terraform ---
 CREDENTIAL_SOURCE="${credential_source}"
 ENABLE_MTLS="${enable_mtls}"
@@ -153,6 +158,39 @@ JSON
 EOF
   sudo systemctl enable amazon-cloudwatch-agent
   sudo systemctl start amazon-cloudwatch-agent
+fi
+
+## SSH fallback hardening (only when mTLS disabled)
+if [ "${ENABLE_SSH}" = "true" ] && [ "${ENABLE_MTLS}" != "true" ]; then
+  echo "[userdata] configuring sshd for fallback"
+  sudo mkdir -p /home/ssm-user/.ssh
+  fetch_credential "ssh/authorized_keys" > /home/ssm-user/.ssh/authorized_keys
+  chown ssm-user:ssm-user /home/ssm-user/.ssh/authorized_keys
+  chmod 600 /home/ssm-user/.ssh/authorized_keys
+
+  sudo mkdir -p /etc/ssh/sshd_config.d
+  cat <<'EOF' | sudo tee /etc/ssh/sshd_config.d/access-gateway.conf >/dev/null
+Port 2222
+AddressFamily inet
+ListenAddress 127.0.0.1
+Protocol 2
+PermitRootLogin no
+PasswordAuthentication no
+ChallengeResponseAuthentication no
+PubkeyAuthentication yes
+AuthorizedKeysFile /home/ssm-user/.ssh/authorized_keys
+AllowUsers ssm-user
+ClientAliveInterval 180
+ClientAliveCountMax 3
+X11Forwarding no
+AllowTcpForwarding no
+GatewayPorts no
+UsePAM yes
+EOF
+
+  sudo systemctl enable sshd
+  sudo systemctl restart sshd
+  echo "[userdata] sshd configured on 127.0.0.1:2222 (SSM port-forward only)"
 fi
 
 ## SSH authorized_keys (fallback mode only)

@@ -32,6 +32,16 @@ variable "credential_source" {
   }
 }
 
+variable "_validate_mtls_or_ssh" {
+  description = "Internal validation to ensure mTLS and SSH are not both enabled."
+  type        = any
+  default     = null
+  validation {
+    condition     = !(var.enable_mtls && var.enable_ssh)
+    error_message = "enable_ssh can only be true when enable_mtls is false (mutually exclusive)."
+  }
+}
+
 variable "onepassword_vault" {
   description = "Name of the 1Password vault when credential_source is '1password'."
   type        = string

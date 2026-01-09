@@ -63,6 +63,7 @@ module "access_gateway" {
 | `enable_twingate`    | Enable Twingate integration.                                              | `bool`         | `false`     |    no    |
 | `enable_kubectl_access` | Attach AmazonEKSClusterPolicy for kubectl access from the gateway.     | `bool`         | `false`     |    no    |
 | `credential_source`  | The source for fetching credentials. Can be 'ssm' or '1password'.         | `string`       | `"ssm"`     |    no    |
+| *Note* | `enable_ssh` and `enable_mtls` are mutually exclusive; SSH only when mTLS is off. | - | - | - |
 | `onepassword_vault`  | Vault name when using 1Password Connect.                                   | `string`       | `""`        |    no    |
 | `onepassword_item_prefix` | Prefix to prepend to 1Password item names (slashes in keys become dashes). | `string`   | `""`        |    no    |
 | `onepassword_connect_host` | 1Password Connect host URL.                                          | `string`       | `""`        |    no    |
