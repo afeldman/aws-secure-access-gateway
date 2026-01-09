@@ -16,14 +16,14 @@ ONEPASSWORD_VAULT="${onepassword_vault}"
 ONEPASSWORD_ITEM_PREFIX="${onepassword_item_prefix}"
 ONEPASSWORD_CONNECT_HOST="${onepassword_connect_host}"
 ONEPASSWORD_CONNECT_TOKEN_PARAM="${onepassword_connect_token_param}"
+LOG_GROUP_NAME="${log_group_name}"
 
 export AWS_DEFAULT_REGION="${region}"
 
 ## Install core dependencies
 echo "[userdata] installing dependencies (docker, kubectl)"
 sudo dnf upgrade -y
-sudo dnf install -y docker
-sudo dnf install -y unzip jq
+sudo dnf install -y docker unzip jq amazon-cloudwatch-agent
 
 # Install kubectl (EKS v1.28 compatible)
 curl -sSf -o /usr/local/bin/kubectl "https://s3.us-west-2.amazonaws.com/amazon-eks/1.28.5/2024-01-04/bin/linux/amd64/kubectl"
@@ -104,7 +104,40 @@ EOF
     -v /etc/ssl/envoy:/etc/ssl/envoy:ro \
     --net=host \
     envoyproxy/envoy:v1.28.0 \
-    -c /etc/envoy/envoy.yaml
+    -c /etc/envoy/envoy.yaml \
+    --log-path /var/log/envoy/envoy.log
+fi
+
+## CloudWatch Logs shipping
+if [ "${LOG_GROUP_NAME}" != "" ]; then
+  echo "[userdata] configuring CloudWatch Logs"
+  sudo mkdir -p /var/log/envoy
+  cat <<EOF | sudo tee /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json >/dev/null
+{
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/var/log/user-data.log",
+            "log_group_name": "${LOG_GROUP_NAME}",
+            "log_stream_name": "{instance_id}/user-data",
+            "timestamp_format": "%Y-%m-%d %H:%M:%S"
+          },
+          {
+            "file_path": "/var/log/envoy/envoy.log",
+            "log_group_name": "${LOG_GROUP_NAME}",
+            "log_stream_name": "{instance_id}/envoy",
+            "timestamp_format": "%Y-%m-%d %H:%M:%S"
+          }
+        ]
+      }
+    }
+  }
+}
+EOF
+  sudo systemctl enable amazon-cloudwatch-agent
+  sudo systemctl start amazon-cloudwatch-agent
 fi
 
 ## SSH authorized_keys (fallback mode only)

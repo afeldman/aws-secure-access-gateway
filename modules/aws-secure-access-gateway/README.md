@@ -74,6 +74,9 @@ module "access_gateway" {
 | `service_name`       | The name of this service, used for tagging and resource naming.           | `string`       | `"access-gateway"` | no    |
 | `environment`        | The environment name (e.g., 'dev', 'staging', 'prod').                    | `string`       | `"dev"`     |    no    |
 | `region`             | AWS region used for API calls and SSM prefix list selection.              | `string`       | `"eu-central-1"` | no |
+| `enable_cloudwatch_logs` | Enable CloudWatch log shipping from the gateway.                      | `bool`         | `true`      |    no    |
+| `log_group_name`     | CloudWatch Logs group for gateway logs (defaults to /aws/access-gateway/<service>/<env>). | `string` | `""` | no |
+| `log_retention_days` | Retention in days for CloudWatch Logs.                                    | `number`       | `30`        |    no    |
 | `instance_type`      | EC2 instance type for the gateway host.                                   | `string`       | `"t3.micro"` |    no    |
 | `root_volume_size`   | Root volume size in GiB for the gateway instance.                         | `number`       | `20`         |    no    |
 | `tags`               | A map of tags to apply to all resources.                                  | `map(string)`  | `{}`        |    no    |

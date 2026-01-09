@@ -87,6 +87,24 @@ variable "region" {
   default     = "eu-central-1"
 }
 
+variable "enable_cloudwatch_logs" {
+  description = "Enable CloudWatch log shipping from the gateway instance."
+  type        = bool
+  default     = true
+}
+
+variable "log_group_name" {
+  description = "CloudWatch Logs group for gateway logs (defaults to /aws/access-gateway/<service>/<env>)."
+  type        = string
+  default     = ""
+}
+
+variable "log_retention_days" {
+  description = "Retention in days for CloudWatch Logs."
+  type        = number
+  default     = 30
+}
+
 variable "instance_type" {
   description = "EC2 instance type for the gateway host."
   type        = string

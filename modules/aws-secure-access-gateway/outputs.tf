@@ -22,5 +22,5 @@ output "service_endpoint" {
 
 output "audit_logs_url" {
   description = "A pre-configured URL to view the audit logs for this gateway in CloudWatch Logs Insights."
-  value       = "https://console.aws.amazon.com/cloudwatch/home?region=${var.region}#logs-insights:queryDetail=~(source~'/var/log/user-data.log'~fields~@timestamp,~@message~sort~@timestamp~desc)"
+  value       = "https://${var.region}.console.aws.amazon.com/cloudwatch/home?region=${var.region}#logsV2:log-groups/log-group/${replace(replace(local.log_group_name, ":", "%3A"), "/", "$252F")}" # URL-encoded log group
 }

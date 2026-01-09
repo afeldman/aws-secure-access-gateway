@@ -12,6 +12,7 @@ terraform {
 
 locals {
   resource_name = "${var.service_name}-${var.environment}-access-gateway"
+  log_group_name = var.log_group_name != "" ? var.log_group_name : "/aws/access-gateway/${var.service_name}/${var.environment}"
   tags = merge(
     var.tags,
     {
@@ -97,9 +98,47 @@ resource "aws_iam_policy" "ssm_credential_access" {
   tags = local.tags
 }
 
+resource "aws_cloudwatch_log_group" "gateway" {
+  count             = var.enable_cloudwatch_logs ? 1 : 0
+  name              = local.log_group_name
+  retention_in_days = var.log_retention_days
+  tags              = local.tags
+}
+
+resource "aws_iam_policy" "cloudwatch_logging" {
+  count       = var.enable_cloudwatch_logs ? 1 : 0
+  name        = "${local.resource_name}-cw-logs"
+  description = "Allow gateway to publish logs to CloudWatch Logs"
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = [
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ],
+        Resource = "${aws_cloudwatch_log_group.gateway[0].arn}:*"
+      },
+      {
+        Effect = "Allow",
+        Action = ["logs:CreateLogGroup"],
+        Resource = "${aws_cloudwatch_log_group.gateway[0].arn}"
+      }
+    ]
+  })
+  tags = local.tags
+}
+
 resource "aws_iam_role_policy_attachment" "ssm_credential_access" {
   role       = aws_iam_role.gateway_instance.name
   policy_arn = aws_iam_policy.ssm_credential_access.arn
+}
+
+resource "aws_iam_role_policy_attachment" "cloudwatch_logging" {
+  count      = var.enable_cloudwatch_logs ? 1 : 0
+  role       = aws_iam_role.gateway_instance.name
+  policy_arn = aws_iam_policy.cloudwatch_logging[0].arn
 }
 
 resource "aws_iam_instance_profile" "gateway_instance" {
@@ -198,6 +237,7 @@ resource "aws_instance" "gateway" {
     onepassword_item_prefix = var.onepassword_item_prefix
     onepassword_connect_host = var.onepassword_connect_host
     onepassword_connect_token_param = var.onepassword_connect_token_param
+    log_group_name    = local.log_group_name
     envoy_config      = templatefile("${path.module}/templates/envoy-config.yaml.tpl", {
       listener_port = 10000
       upstream_host = "localhost"
