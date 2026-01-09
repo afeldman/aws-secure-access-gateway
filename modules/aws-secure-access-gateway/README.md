@@ -63,6 +63,10 @@ module "access_gateway" {
 | `enable_twingate`    | Enable Twingate integration.                                              | `bool`         | `false`     |    no    |
 | `enable_kubectl_access` | Attach AmazonEKSClusterPolicy for kubectl access from the gateway.     | `bool`         | `false`     |    no    |
 | `credential_source`  | The source for fetching credentials. Can be 'ssm' or '1password'.         | `string`       | `"ssm"`     |    no    |
+| `onepassword_vault`  | Vault name when using 1Password Connect.                                   | `string`       | `""`        |    no    |
+| `onepassword_item_prefix` | Prefix to prepend to 1Password item names (slashes in keys become dashes). | `string`   | `""`        |    no    |
+| `onepassword_connect_host` | 1Password Connect host URL.                                          | `string`       | `""`        |    no    |
+| `onepassword_connect_token_param` | SSM parameter path containing the 1Password Connect token.    | `string`       | `""`        |    no    |
 | `mtls_proxy_type`    | The proxy to use for mTLS. Can be 'envoy', 'nginx', or 'caddy'.           | `string`       | `"envoy"`   |    no    |
 | `eks_cluster_name`   | The name of the EKS cluster to provide access to.                         | `string`       | -           |   yes    |
 | `vpc_id`             | The ID of the VPC where the EKS cluster resides.                          | `string`       | -           |   yes    |

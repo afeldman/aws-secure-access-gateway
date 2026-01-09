@@ -7,10 +7,15 @@ echo "[userdata] bootstrap starting"
 # --- Variables from Terraform ---
 CREDENTIAL_SOURCE="${credential_source}"
 ENABLE_MTLS="${enable_mtls}"
+ENABLE_SSH="${enable_ssh}"
+ENABLE_TWINGATE="${enable_twingate}"
 SERVICE_NAME="${service_name}"
 ENVIRONMENT="${environment}"
 AWS_REGION="${region}"
-ONEPASSWORD_VAULT="" # Placeholder until Phase 3
+ONEPASSWORD_VAULT="${onepassword_vault}"
+ONEPASSWORD_ITEM_PREFIX="${onepassword_item_prefix}"
+ONEPASSWORD_CONNECT_HOST="${onepassword_connect_host}"
+ONEPASSWORD_CONNECT_TOKEN_PARAM="${onepassword_connect_token_param}"
 
 export AWS_DEFAULT_REGION="${region}"
 
@@ -18,6 +23,7 @@ export AWS_DEFAULT_REGION="${region}"
 echo "[userdata] installing dependencies (docker, kubectl)"
 sudo dnf upgrade -y
 sudo dnf install -y docker
+sudo dnf install -y unzip jq
 
 # Install kubectl (EKS v1.28 compatible)
 curl -sSf -o /usr/local/bin/kubectl "https://s3.us-west-2.amazonaws.com/amazon-eks/1.28.5/2024-01-04/bin/linux/amd64/kubectl"
@@ -25,6 +31,27 @@ chmod +x /usr/local/bin/kubectl
 
 sudo systemctl enable docker
 sudo systemctl start docker
+
+install_op_cli() {
+  if command -v op >/dev/null 2>&1; then
+    return
+  fi
+  echo "[userdata] installing 1Password CLI"
+  curl -sSLo /tmp/op.zip https://cache.agilebits.com/dist/1P/op2/pkg/v2.25.0/op_linux_amd64_v2.25.0.zip
+  unzip -o /tmp/op.zip -d /tmp/op-bin
+  sudo mv /tmp/op-bin/op /usr/local/bin/op
+  sudo chmod 755 /usr/local/bin/op
+}
+
+ensure_op_env() {
+  if [ -n "${ONEPASSWORD_CONNECT_HOST}" ]; then
+    export OP_CONNECT_HOST="${ONEPASSWORD_CONNECT_HOST}"
+  fi
+  if [ -n "${ONEPASSWORD_CONNECT_TOKEN_PARAM}" ]; then
+    OP_CONNECT_TOKEN=$(aws ssm get-parameter --name "${ONEPASSWORD_CONNECT_TOKEN_PARAM}" --with-decryption --query Parameter.Value --output text --region "${AWS_REGION}")
+    export OP_CONNECT_TOKEN
+  fi
+}
 
 ## Credential Fetching Logic
 fetch_credential() {
@@ -39,11 +66,15 @@ fetch_credential() {
         --region "${AWS_REGION}"
       ;;
     "1password")
-      if ! command -v op >/dev/null 2>&1; then
-        echo "[userdata] ERROR: 1Password CLI 'op' not found" >&2
+      install_op_cli
+      ensure_op_env
+      if [ -z "${ONEPASSWORD_VAULT}" ]; then
+        echo "[userdata] ERROR: ONEPASSWORD_VAULT not set" >&2
         exit 1
       fi
-      op read "op://${ONEPASSWORD_VAULT}/${key}"
+      local item_name
+      item_name="${ONEPASSWORD_ITEM_PREFIX}${key//\//-}"
+      op read "op://${ONEPASSWORD_VAULT}/${item_name}"
       ;;
     *)
       echo "[userdata] ERROR: unknown credential source '${CREDENTIAL_SOURCE}'" >&2
@@ -74,6 +105,22 @@ EOF
     --net=host \
     envoyproxy/envoy:v1.28.0 \
     -c /etc/envoy/envoy.yaml
+fi
+
+## SSH authorized_keys (fallback mode only)
+if [ "${ENABLE_SSH}" = "true" ] && [ "${ENABLE_MTLS}" != "true" ]; then
+  echo "[userdata] fetching SSH authorized_keys"
+  fetch_credential "ssh/authorized_keys" > /home/ssm-user/.ssh/authorized_keys
+  chown ssm-user:ssm-user /home/ssm-user/.ssh/authorized_keys
+  chmod 600 /home/ssm-user/.ssh/authorized_keys
+fi
+
+## Twingate token (placeholder)
+if [ "${ENABLE_TWINGATE}" = "true" ]; then
+  echo "[userdata] fetching Twingate token"
+  mkdir -p /etc/twingate
+  fetch_credential "twingate/token" > /etc/twingate/token
+  chmod 600 /etc/twingate/token
 fi
 
 echo "[userdata] bootstrap completed"

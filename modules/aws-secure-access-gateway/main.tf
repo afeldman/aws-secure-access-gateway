@@ -71,16 +71,28 @@ resource "aws_iam_policy" "ssm_credential_access" {
   description = "Allows access to SSM Parameter Store for credentials"
   policy = jsonencode({
     Version = "2012-10-17",
-    Statement = [
-      {
-        Action = [
-          "ssm:GetParameter",
-          "ssm:GetParameters"
-        ],
-        Effect   = "Allow",
-        Resource = "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/${var.service_name}/secrets/*"
-      }
-    ]
+    Statement = flatten([
+      [
+        {
+          Action = [
+            "ssm:GetParameter",
+            "ssm:GetParameters"
+          ],
+          Effect   = "Allow",
+          Resource = "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/${var.service_name}/secrets/*"
+        }
+      ],
+      var.onepassword_connect_token_param != "" ? [
+        {
+          Action = [
+            "ssm:GetParameter",
+            "ssm:GetParameters"
+          ],
+          Effect   = "Allow",
+          Resource = "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.onepassword_connect_token_param}"
+        }
+      ] : []
+    ])
   })
   tags = local.tags
 }
@@ -177,9 +189,15 @@ resource "aws_instance" "gateway" {
   user_data_base64 = base64encode(templatefile("${path.module}/templates/userdata.sh.tpl", {
     credential_source = var.credential_source
     enable_mtls       = var.enable_mtls
+    enable_ssh        = var.enable_ssh
+    enable_twingate   = var.enable_twingate
     service_name      = var.service_name
     environment       = var.environment
     region            = var.region
+    onepassword_vault = var.onepassword_vault
+    onepassword_item_prefix = var.onepassword_item_prefix
+    onepassword_connect_host = var.onepassword_connect_host
+    onepassword_connect_token_param = var.onepassword_connect_token_param
     envoy_config      = templatefile("${path.module}/templates/envoy-config.yaml.tpl", {
       listener_port = 10000
       upstream_host = "localhost"

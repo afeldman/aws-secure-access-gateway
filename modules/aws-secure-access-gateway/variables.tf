@@ -32,6 +32,30 @@ variable "credential_source" {
   }
 }
 
+variable "onepassword_vault" {
+  description = "Name of the 1Password vault when credential_source is '1password'."
+  type        = string
+  default     = ""
+}
+
+variable "onepassword_item_prefix" {
+  description = "Prefix applied to 1Password item names (slashes in keys are replaced with dashes)."
+  type        = string
+  default     = ""
+}
+
+variable "onepassword_connect_host" {
+  description = "1Password Connect host URL (e.g., https://connect.example.com)."
+  type        = string
+  default     = ""
+}
+
+variable "onepassword_connect_token_param" {
+  description = "SSM Parameter Store path that holds the 1Password Connect token (WithDecryption)."
+  type        = string
+  default     = ""
+}
+
 variable "mtls_proxy_type" {
   description = "The proxy to use for mTLS. Can be 'envoy', 'nginx', or 'caddy'."
   type        = string
